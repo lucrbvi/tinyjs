@@ -9,8 +9,6 @@ pub struct Cursor {
 
 #[derive(Clone, PartialEq)]
 pub enum TokenKind {
-    NewLine,
-
     // keywords
     Break,
     For,
@@ -28,6 +26,9 @@ pub enum TokenKind {
     In,
     Typeof,
     With,
+    True,
+    False,
+    Null,
 
     // future reserved keywords
     Case,
@@ -46,7 +47,9 @@ pub enum TokenKind {
     Enum,
     Import,
     Try,
+    Undefined,
 
+    // symbols
     SemiColon,
     OpenParen,
     CloseParen,
@@ -93,9 +96,12 @@ pub enum TokenKind {
     TripleGreaterThanEqual,
     OpenCurly,
     CloseCurly,
+    BackSlash,
 
     Identifier,
     Number,
+    String,
+    NewLine,
     EOF,
 }
 
@@ -143,6 +149,10 @@ impl Lexer {
             "in" => TokenKind::In,
             "typeof" => TokenKind::Typeof,
             "with" => TokenKind::With,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
+            "null" => TokenKind::Null,
+            "undefined" => TokenKind::Undefined,
 
             "case" => TokenKind::Case,
             "debugger" => TokenKind::Debugger,
@@ -295,47 +305,52 @@ impl Lexer {
             }
             '(' => {
                 token.content = "(".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::OpenParen;
                 return token;
             }
             ')' => {
                 token.content = ")".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::CloseParen;
                 return token;
             }
             '{' => {
                 token.content = "{".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::OpenCurly;
                 return token;
             }
             '}' => {
                 token.content = "}".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::CloseCurly;
                 return token;
             }
             '[' => {
                 token.content = "[".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::OpenBracket;
                 return token;
             }
             ']' => {
                 token.content = "]".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::CloseBracket;
                 return token;
             }
             ';' => {
                 token.content = ";".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::SemiColon;
                 return token;
             }
             '.' => {
                 token.content = ".".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::Dot;
                 return token;
             }
             ':' => {
                 token.content = ":".to_string();
-                token.kind = Self::keyword_kind(&token.content);
+                token.kind = TokenKind::DoubleDot;
+                return token;
+            }
+            '\\' => {
+                token.content = "\\".to_string();
+                token.kind = TokenKind::BackSlash;
                 return token;
             }
             '*' => {
@@ -442,6 +457,37 @@ impl Lexer {
                 }
                 return token;
             }
+            '\'' | '"' => {
+                let delimiter = x;
+                let mut s = String::new();
+                s.push(x);
+
+                loop {
+                    let c = self.get_next_char();
+                    if c == '\0' {
+                        println!("Lexer error: EOF in string");
+                        exit(-1);
+                    }
+                    if c == '\\' {
+                        s.push(c);
+                        let next = self.get_next_char();
+                        if next == '\0' {
+                            println!("Lexer error: EOF in string escape");
+                            exit(-1);
+                        }
+                        s.push(next);
+                        continue;
+                    }
+                    s.push(c);
+                    if c == delimiter {
+                        break;
+                    }
+                }
+
+                token.content = s;
+                token.kind = TokenKind::String;
+                return token;
+            }
             '>' => {
                 if self.eat_char('=') {
                     token.content = ">=".to_string();
@@ -511,7 +557,7 @@ impl Lexer {
 
                     while {
                         let c = self.get_current_char();
-                        c != '\0' && (c.is_numeric() || c == '_' || c == '.')
+                        c != '\0' && (c.is_numeric() || c == '_' || c == '.' || c == 'x')
                     } {
                         s.push(self.get_next_char());
                     }

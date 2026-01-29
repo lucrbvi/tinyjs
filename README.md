@@ -1,17 +1,17 @@
 # TinyJS
 
-A simple and embeddable JavaScript interpreter written in Rust.
+A simple and embeddable JavaScript interpreter written in Rust without third-party dependencies.
 We expose our API to C ABI.
 
 The pipeline is working like this:
 1. The lexer analyze the source code
 2. The parser generate the AST
-3. Optimization
+3. Optimization and IR generation
 4. Compilation
-5. The VM execute the Op Codes
+5. The VM execute the compiled version
 
 We are implementing the language following the ECMA-262 standard.
-Also, we are implementing older version of the standard first.
+To make things easier, we are implementing ECMAScript by following the oldest version and slowly upgrading it by reading the others editions.
 
 [~] ECMA-262, first edition (1997) [link](https://www.ecma-international.org/wp-content/uploads/ECMA-262_1st_edition_june_1997.pdf)
 [] ECMA-262, 2 (1998) 
