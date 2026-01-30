@@ -105,6 +105,7 @@ pub enum TokenKind {
     EOF,
 }
 
+// TODO: Add a line/column tracking for debugging
 #[derive(Clone)]
 pub struct Token {
     pub content: String,
@@ -557,7 +558,10 @@ impl Lexer {
 
                     while {
                         let c = self.get_current_char();
-                        c != '\0' && (c.is_numeric() || c == '_' || c == '.' || c == 'x')
+                        c != '\0' && (
+                                c.is_numeric() || c == '_' || c == '.' 
+                                || c == 'x'
+                            )
                     } {
                         s.push(self.get_next_char());
                     }
