@@ -6,6 +6,7 @@ pub enum Expr {
     Literal(Literal),
     This,
     AssignOp(AssignOp),
+    Empty,
 
     Binary {
         op: BinOp,

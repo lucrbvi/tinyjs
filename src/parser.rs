@@ -360,6 +360,9 @@ impl Parser {
         return relational_expr;
     }
 
+    // TODO: Add 'in' support
+    // A problem is that we do not have a 'In' node in the AST,
+    // only a 'ForIn' in ast::Stmt ...
     fn parse_relational_expression(&mut self) -> ast::Expr {
         let shift_expr = self.parse_shift_expression();
 
@@ -798,11 +801,237 @@ impl Parser {
 
     fn parse_statement(&mut self) -> ast::Stmt {
         let tok = self.peek();
-        match tok.kind {
+        match tok.kind { 
             TokenKind::Function => {
                 return ast::Stmt::Function(self.parse_function_declaration());
             }
-            _ => ast::Stmt::Empty,
+            TokenKind::OpenCurly => {
+                return self.parse_block();
+            }
+            TokenKind::SemiColon => {
+                return ast::Stmt::Empty;
+            }
+            TokenKind::Var => {
+                return self.parse_variable_statement();
+            }
+            TokenKind::If => {
+                return self.parse_if_statement();
+            }
+            TokenKind::Do
+            |TokenKind::While
+            |TokenKind::For => {
+                return self.parse_iteration_statement();
+            }
+            TokenKind::Continue => {
+                return self.parse_continue_statement();
+            }
+            TokenKind::Break => {
+                return self.parse_break_statement();
+            }
+            TokenKind::Return => {
+                return self.parse_return_statement();
+            }
+            TokenKind::With => {
+                return self.parse_with_statement();
+            }
+            TokenKind::Switch => {
+                return self.parse_switch_statement();
+            }
+            TokenKind::Throw => {
+                return self.parse_throw_statement();
+            }
+            TokenKind::Try => {
+                return self.parse_try_statement();
+            }
+            _ => {
+                // Not Function
+                return ast::Stmt::Expr(self.parse_expression());
+            },
+        }
+    }
+
+    fn parse_block(&mut self) -> ast::Stmt {
+        if self.check_kind(TokenKind::OpenCurly) {
+            self.advance();
+            if self.check_kind(TokenKind::CloseCurly) {
+                return ast::Stmt::Block(vec![]);
+            }
+
+            let stmts = self.parse_statement_list();
+
+            if !self.check_kind(TokenKind::CloseCurly) {
+                println!("Parser error: expected '}}'");
+                exit(-1);
+            }
+            self.advance();
+            return ast::Stmt::Block(stmts);
+        }
+        ast::Stmt::Block(vec![])
+    }
+
+    fn parse_statement_list(&mut self) -> Vec<ast::Stmt> {
+        let mut stmts: Vec<ast::Stmt> = vec![];
+
+        while self.peek().kind != TokenKind::CloseCurly && self.peek().kind != TokenKind::EOF {
+            stmts.push(self.parse_statement());
+        }
+
+        stmts
+    }
+
+    fn parse_variable_statement(&mut self) -> ast::Stmt {
+        if self.check_kind(TokenKind::Var) {
+            return ast::Stmt::Var(self.parse_variable_declaration_list());
+        }
+        println!("Parser error: 'var' expected but not found in parse_variable_statement()");
+        exit(-1);
+    }
+
+    fn parse_variable_declaration_list(&mut self) -> Vec<(String, Option<ast::Expr>)> {
+        let mut vars: Vec<(String, Option<ast::Expr>)> = vec![];
+
+        while self.peek().kind == TokenKind::Identifier {
+            let name: String = self.peek().content.clone();
+            let mut init: ast::Expr = ast::Expr::Literal(ast::Literal::Undefined);
+            self.advance();
+
+            if self.check_kind(TokenKind::Equal) {
+                init = self.parse_assignment_expression();
+            }
+
+            vars.push((name, Some(init)));
+        }
+
+        return vars;
+    }
+
+    fn parse_if_statement(&mut self) -> ast::Stmt {
+        if self.check_kind(TokenKind::If) {
+            let expr: ast::Expr;
+            let stmt: ast::Stmt;
+            let stmt2: ast::Stmt;
+            if self.check_kind(TokenKind::OpenParen) {
+                expr = self.parse_expression();
+
+                if self.check_kind(TokenKind::CloseParen) {
+                    stmt = self.parse_statement();
+
+                    if self.check_kind(TokenKind::Else) {
+                        stmt2 = self.parse_statement();
+                        return ast::Stmt::If{
+                            cond: expr,
+                            then_: Box::new(stmt),
+                            else_: Some(Box::new(stmt2)),
+                        };
+                    } else {
+                        return ast::Stmt::If{
+                            cond: expr,
+                            then_: Box::new(stmt),
+                            else_: None,
+                        };
+                    }
+                } else {
+                    println!("Parser error: Parenthese not closed");
+                    exit(-1);
+                }
+            }
+        }
+
+        println!("Parser error: 'if' keyword is missing (source: parse_if_statement())");
+        exit(-1);
+    }
+
+    fn parse_iteration_statement(&mut self) -> ast::Stmt {
+        let expr: ast::Expr;
+        let stmt: ast::Stmt;
+        if self.check_kind(TokenKind::While) {
+            if self.check_kind(TokenKind::OpenParen) {
+                expr = self.parse_expression();
+                if self.check_kind(TokenKind::CloseParen) {
+                    stmt = self.parse_statement();
+                } else {
+                    println!("Parser error: Parenthese not closed");
+                    exit(-1);
+                }
+
+                return ast::Stmt::While{
+                    cond: expr,
+                    body: Box::new(stmt),
+                };
+            } else {
+                println!("Parser error: Expected '(' after the 'while' keyword");
+                exit(-1);
+            }
+        } else if self.check_kind(TokenKind::For) {
+            let first: ast::Expr;
+            let firstvar: Vec<(String, Option<Expr>)>;
+            let second: ast::Expr;
+            let third: ast::Expr;
+            let body: ast::Stmt;
+
+            if self.check_kind(TokenKind::OpenParen) {
+                // if ExpressionNoIn opt ;
+                if self.check_kind(TokenKind::Var) {
+                    firstvar = self.parse_variable_declaration_list();
+
+                    if self.check_kind(TokenKind::SemiColon) {
+                        if !self.check_kind(TokenKind::SemiColon) {
+                            second = ast::Expr::Empty;
+                            third = ast::Expr::Empty;
+                            if !self.check_kind(TokenKind::CloseParen) {
+                                println!("Parser error: Expected ')' after '('");
+                                exit(-1);
+                            }
+
+                            body = self.parse_statement(); 
+                        }
+                        second = self.parse_expression();
+                    } else if self.check_kind(TokenKind::In) {
+                        second = self.parse_expression();
+
+                        if !self.check_kind(TokenKind::CloseParen) {
+                            println!("Parser error: Expected ')' after '('");
+                            exit(-1);
+                        }
+
+                        body = self.parse_statement();
+                    }
+
+                    return ast::Stmt::For{
+                        init: Some(ast::ForInit::Var(firstvar)),
+                        cond: Some(second),
+                        update: Some(third),
+                        body: Box::new(body),
+                    };
+                } else if self.check_kind(TokenKind::New) {
+                    first = self.parse_lefthand_side_expression();
+
+                    if self.check_kind(TokenKind::In) {
+                        second = self.parse_expression();
+                    } else {
+                        println!("Parser error: Expected 'in' after a lefthand sided expression in a 'for' loop");
+                        exit(-1);
+                    }
+
+                    if !self.check_kind(TokenKind::CloseParen) {
+                        println!("Parser error: Expected ')' after '('");
+                        exit(-1);
+                    }
+
+                    return ast::Stmt::For{
+                        init: Some(ast::ForInit::Expr(first)),
+                        cond: Some(second),
+                        update: Some(third),
+                        body: Box::new(body),
+                    };
+                } else {
+                    println!("Parser error: parse_iteration_statement() is not finished, you may used a not implemented feature or you just did some illegal stuff");
+                    exit(-1);
+                }
+            } else {
+                println!("Parser error: Expected '(' after the 'for' keyword");
+                exit(-1);
+            }
         }
     }
 }
