@@ -558,17 +558,26 @@ impl Lexer {
 
                     while {
                         let c = self.get_current_char();
-                        c != '\0' && (
-                                c.is_numeric() || c == '_' || c == '.' 
-                                || c == 'x'
-                            )
+                        c != '\0' && (c.is_numeric() || c == '_' || c == '.' || c == 'x')
                     } {
                         s.push(self.get_next_char());
                     }
 
+                    if self.get_current_char() == 'e' || self.get_current_char() == 'E' {
+                        s.push(self.get_next_char());
+                        if self.get_current_char() == '+' || self.get_current_char() == '-' {
+                            s.push(self.get_next_char());
+                        }
+                        while {
+                            let c = self.get_current_char();
+                            c != '\0' && c.is_numeric()
+                        } {
+                            s.push(self.get_next_char());
+                        }
+                    }
+
                     token.content = s;
                     token.kind = TokenKind::Number;
-
                     return token;
                 }
                 if x.is_alphabetic() || x == '$' || x == '_' {

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Expr {
     Identifier(String),
     Literal(Literal),
@@ -52,7 +52,7 @@ pub enum Expr {
     Function(Function),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Literal {
     Null,
     Undefined,
@@ -63,14 +63,14 @@ pub enum Literal {
     Object(Vec<(PropertyKey, Expr)>), // { a: 1, b: 2 }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum PropertyKey {
     Identifier(String),
     String(String),
     Number(f64),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum BinOp {
     Add,
     Sub,
@@ -91,9 +91,10 @@ pub enum BinOp {
     Shl,
     Shr,
     UShr,
+    In,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum UnaryOp {
     Pos,
     Neg,
@@ -108,7 +109,7 @@ pub enum UnaryOp {
     PostDec,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Stmt {
     Block(Vec<Stmt>),
     Var(Vec<(String, Option<Expr>)>),
@@ -144,25 +145,25 @@ pub enum Stmt {
     Function(Function),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum ForInit {
     Var(Vec<(String, Option<Expr>)>),
     Expr(Expr),
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct Function {
     pub name: Option<String>,
     pub params: Vec<String>,
     pub body: Vec<Stmt>,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub struct Program {
     pub body: Vec<Stmt>,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum AssignOp {
     Assign,       // =
     AddAssign,    // +=
@@ -178,7 +179,7 @@ pub enum AssignOp {
     BitXorAssign, // ^=
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum UpdateOp {
     Inc, // ++
     Dec, // --
