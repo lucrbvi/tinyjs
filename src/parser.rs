@@ -72,6 +72,10 @@ impl Parser {
                 self.advance();
                 return ast::Expr::This;
             }
+            TokenKind::Undefined => {
+                self.advance();
+                return ast::Expr::Literal(ast::Literal::Undefined);
+            }
             TokenKind::Identifier => {
                 let name = x.content.clone();
                 self.advance();
@@ -888,7 +892,7 @@ impl Parser {
             _ => {
                 // Not Function
                 let expr = self.parse_expression();
-                self.check_kind(TokenKind::SemiColon);
+                self.consume_semicolon_or_insert();
                 return ast::Stmt::Expr(expr);
             }
         }
@@ -928,7 +932,7 @@ impl Parser {
     fn parse_variable_statement(&mut self) -> ast::Stmt {
         if self.check_kind(TokenKind::Var) {
             let vars = self.parse_variable_declaration_list();
-            self.check_kind(TokenKind::SemiColon);
+            self.consume_semicolon_or_insert();
             return ast::Stmt::Var(vars);
         }
         println!("Parser error: 'var' expected but not found in parse_variable_statement()");
@@ -1155,6 +1159,7 @@ impl Parser {
 
     fn parse_continue_statement(&mut self) -> ast::Stmt {
         if self.check_kind(TokenKind::Continue) {
+            self.consume_semicolon_or_insert();
             return ast::Stmt::Continue;
         }
 
@@ -1167,6 +1172,7 @@ impl Parser {
 
     fn parse_break_statement(&mut self) -> ast::Stmt {
         if self.check_kind(TokenKind::Break) {
+            self.consume_semicolon_or_insert();
             return ast::Stmt::Break;
         }
 
@@ -1181,11 +1187,17 @@ impl Parser {
         let expr: ast::Expr;
 
         if self.check_kind(TokenKind::Return) {
-            if self.check_kind(TokenKind::SemiColon) || self.check_kind(TokenKind::NewLine) {
+            if self.peek().kind == TokenKind::SemiColon
+                || self.peek().kind == TokenKind::CloseCurly
+                || self.peek().kind == TokenKind::EOF
+                || self.peek().line_terminator_before
+            {
+                self.consume_semicolon_or_insert();
                 return ast::Stmt::Return(None);
             }
             expr = self.parse_expression();
 
+            self.consume_semicolon_or_insert();
             return ast::Stmt::Return(Some(expr));
         }
 
@@ -1226,6 +1238,20 @@ impl Parser {
             expr: expr,
             body: Box::new(stmt),
         };
+    }
+
+    fn consume_semicolon_or_insert(&mut self) {
+        if self.check_kind(TokenKind::SemiColon) {
+            return;
+        }
+        if self.peek().kind == TokenKind::CloseCurly
+            || self.peek().kind == TokenKind::EOF
+            || self.peek().line_terminator_before
+        {
+            return;
+        }
+        println!("Parser error: expected ';'");
+        exit(-1);
     }
 
     pub fn parse(&mut self, tokens: Vec<Token>) -> ast::Program {

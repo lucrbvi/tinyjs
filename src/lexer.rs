@@ -108,6 +108,7 @@ pub enum TokenKind {
 pub struct Token {
     pub content: String,
     pub kind: TokenKind,
+    pub line_terminator_before: bool,
 }
 
 pub struct Lexer {
@@ -263,11 +264,28 @@ impl Lexer {
     }
 
     pub fn next(&mut self) -> Token {
-        self.skip_spaces();
+        let mut saw_line_terminator = false;
+        loop {
+            self.skip_spaces();
+            let c = self.get_current_char();
+            if c == '\u{000D}' {
+                self.get_next_char();
+                self.eat_char('\u{000A}');
+                saw_line_terminator = true;
+                continue;
+            }
+            if c == '\u{000A}' {
+                self.get_next_char();
+                saw_line_terminator = true;
+                continue;
+            }
+            break;
+        }
 
         let mut token = Token {
             kind: TokenKind::EOF,
             content: "EOF".to_string(),
+            line_terminator_before: saw_line_terminator,
         };
 
         let x: char = self.get_next_char();
@@ -276,20 +294,6 @@ impl Lexer {
         }
 
         match x {
-            '\u{000D}' => {
-                if self.eat_char('\u{000A}') {
-                    token.content = "\r\n".to_string();
-                } else {
-                    token.content = "\r".to_string();
-                }
-                token.kind = TokenKind::NewLine;
-                return token;
-            }
-            '\u{000A}' => {
-                token.content = "\n".to_string();
-                token.kind = TokenKind::NewLine;
-                return token;
-            }
             '(' => {
                 token.content = "(".to_string();
                 token.kind = TokenKind::OpenParen;
