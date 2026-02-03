@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::process::exit;
 
 pub struct Cursor {
@@ -7,7 +5,7 @@ pub struct Cursor {
     pub row: usize,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum TokenKind {
     // keywords
     Break,
@@ -184,11 +182,6 @@ impl Lexer {
         return self.source.chars().nth(self.row + offset).unwrap_or('\0');
     }
 
-    #[allow(dead_code)]
-    fn peek_next_char(&self) -> char {
-        return self.peek_char(1);
-    }
-
     fn eat_char(&mut self, expected: char) -> bool {
         if self.get_current_char() == expected {
             self.get_next_char();
@@ -267,13 +260,6 @@ impl Lexer {
             }
             break;
         }
-    }
-
-    #[allow(dead_code)]
-    fn drop_line(&mut self) {
-        while (self.cursor.line * self.cursor.row + 1) < self.source.chars().count()
-            && !Self::isterminator(self.get_next_char())
-        {}
     }
 
     pub fn next(&mut self) -> Token {
@@ -574,6 +560,12 @@ impl Lexer {
                         } {
                             s.push(self.get_next_char());
                         }
+                    }
+
+                    let next = self.get_current_char();
+                    if next.is_alphabetic() || next == '$' || next == '_' {
+                        println!("Lexer error: missing separator after number literal");
+                        exit(-1);
                     }
 
                     token.content = s;

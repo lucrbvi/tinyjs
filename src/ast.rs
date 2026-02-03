@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[derive(PartialEq, Debug)]
 pub enum Expr {
     Identifier(String),

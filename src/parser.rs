@@ -1,6 +1,5 @@
-#![allow(dead_code)]
-
-// You should read this with the ECMAScript Third Edition on Annex B
+// You should read this with the ECMAScript Third Edition on Annex B 
+// (we ignore grammar on reserved keywords for ECMAScript first edition)
 
 use crate::ast;
 use crate::lexer::{Token, TokenKind};
@@ -10,20 +9,12 @@ use std::process::exit;
 pub struct Parser {
     pub tokens: Vec<Token>,
     pub pos: usize,
-    pub allow_in: bool,
+    pub allow_in: bool, // used to exclude parsing "in" in certain scenarios
 }
 
 impl Parser {
     fn peek(&self) -> &Token {
         &self.tokens[self.pos.min(self.tokens.len() - 1)]
-    }
-
-    fn peek_n(&self, n: usize) -> &Token {
-        let idx = self.pos + n;
-        if idx >= self.tokens.len() {
-            return &self.tokens[self.tokens.len() - 1];
-        }
-        &self.tokens[idx]
     }
 
     fn check_kind(&mut self, kind: TokenKind) -> bool {
@@ -39,22 +30,6 @@ impl Parser {
         let tok = self.tokens[self.pos].clone();
         self.pos += 1;
         return tok;
-    }
-
-    fn match_(&mut self, kind: TokenKind) -> bool {
-        if self.check_kind(kind) {
-            true
-        } else {
-            false
-        }
-    }
-
-    fn expect(&mut self, token: Token) -> bool {
-        if self.match_(token.kind) {
-            return true;
-        }
-        println!("Parser error: unexpected token '{:?}'", token.content);
-        exit(-1);
     }
 
     fn parse_expression(&mut self) -> ast::Expr {
@@ -76,6 +51,20 @@ impl Parser {
         }
     }
 
+    fn parse_string(&mut self, x: Token) -> String {
+        if x.content.chars().nth(0) == Some('\'')
+            || x.content.chars().nth(0) == Some('"') {
+                // we could have done this in lexer but it's fine here too
+                // (we drop the '' or "" in strings)
+                let mut y = x.content.clone();
+                y.pop();
+                y.remove(0);
+                return y;
+        }
+
+        return x.content.clone();
+    }
+
     fn parse_primary_expression(&mut self) -> ast::Expr {
         let x = self.peek();
         match x.kind {
@@ -89,15 +78,20 @@ impl Parser {
                 return ast::Expr::Identifier(name);
             }
             TokenKind::String => {
-                return ast::Expr::Literal(ast::Literal::String(x.content.clone()));
+                let cloned_x = x.clone();
+                self.advance();
+                return ast::Expr::Literal(ast::Literal::String(self.parse_string(cloned_x)));
             }
             TokenKind::True => {
+                self.advance();
                 return ast::Expr::Literal(ast::Literal::Bool(true));
             }
             TokenKind::False => {
+                self.advance();
                 return ast::Expr::Literal(ast::Literal::Bool(false));
             }
             TokenKind::Null => {
+                self.advance();
                 return ast::Expr::Literal(ast::Literal::Null);
             }
             TokenKind::Number => {
@@ -110,7 +104,8 @@ impl Parser {
                 return self.parse_array();
             }
             TokenKind::OpenCurly => {
-                // self.parse_object();
+                self.advance();
+                return self.parse_object();
             }
             TokenKind::OpenParen => {
                 // ( Expression )
@@ -133,7 +128,56 @@ impl Parser {
                 exit(-1);
             }
         }
-        return ast::Expr::This;
+    }
+
+    fn parse_object(&mut self) -> ast::Expr {
+        if self.check_kind(TokenKind::CloseCurly) {
+            return ast::Expr::Literal(ast::Literal::Object(vec![]));
+        }
+
+        let props = self.parse_property_name_and_value_list();
+
+        if !self.check_kind(TokenKind::CloseCurly) {
+            println!("Parser error: expected '}}' after object");
+            exit(-1);
+        }
+
+        return ast::Expr::Literal(ast::Literal::Object(props));
+    }
+
+    fn parse_property_name_and_value_list(&mut self) -> Vec<(ast::PropertyKey, ast::Expr)> {
+        let mut outvec: Vec<(ast::PropertyKey, ast::Expr)> = vec![];
+
+        loop {
+            let property_name: ast::PropertyKey;
+            if self.peek().kind == TokenKind::String {
+                property_name = ast::PropertyKey::String(self.parse_string(self.peek().clone()));
+                self.advance();
+            } else if self.peek().kind == TokenKind::Number {
+                property_name = ast::PropertyKey::Number(self.peek().content.clone().parse().unwrap());
+                self.advance();
+            } else if self.peek().kind == TokenKind::Identifier {
+                property_name = ast::PropertyKey::Identifier(self.parse_identifier());
+            } else {
+                println!("Parser error: Expected a String or a Number or an Identifier but found '{}' of type {:#?}", self.peek().content, self.peek().kind);
+                exit(-1);
+            }
+
+            if !self.check_kind(TokenKind::DoubleDot) {
+                println!("Parser error: Expected ':' in object but found '{}'", self.peek().content);
+                exit(-1);
+            }
+
+            let assignment_expr = self.parse_assignment_expression();
+
+            outvec.push((property_name, assignment_expr));
+
+            if !self.check_kind(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        return outvec;
     }
 
     fn parse_array(&mut self) -> ast::Expr {
@@ -276,266 +320,193 @@ impl Parser {
     }
 
     fn parse_logical_or_expression(&mut self) -> ast::Expr {
-        let logic_and_expr = self.parse_logical_and_expression();
+        let mut expr = self.parse_logical_and_expression();
 
-        if self.peek().kind == TokenKind::Or {
+        while self.peek().kind == TokenKind::Or {
             self.advance();
-            let logic_and_expr2 = self.parse_logical_and_expression();
-
-            return ast::Expr::Binary {
+            let right = self.parse_logical_and_expression();
+            expr = ast::Expr::Binary {
                 op: ast::BinOp::Or,
-                left: Box::new(logic_and_expr),
-                right: Box::new(logic_and_expr2),
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return logic_and_expr;
+        return expr;
     }
 
     fn parse_logical_and_expression(&mut self) -> ast::Expr {
-        let bitwise_or_expr = self.parse_bitwise_or_expression();
+        let mut expr = self.parse_bitwise_or_expression();
 
-        if self.peek().kind == TokenKind::And {
+        while self.peek().kind == TokenKind::And {
             self.advance();
-            let bitwise_or_expr2 = self.parse_bitwise_or_expression();
-
-            return ast::Expr::Binary {
+            let right = self.parse_bitwise_or_expression();
+            expr = ast::Expr::Binary {
                 op: ast::BinOp::And,
-                left: Box::new(bitwise_or_expr),
-                right: Box::new(bitwise_or_expr2),
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return bitwise_or_expr;
+        return expr;
     }
 
     fn parse_bitwise_or_expression(&mut self) -> ast::Expr {
-        let bitwise_xor_expr = self.parse_bitwise_xor_expression();
+        let mut expr = self.parse_bitwise_xor_expression();
 
-        if self.peek().kind == TokenKind::Bar {
+        while self.peek().kind == TokenKind::Bar {
             self.advance();
-            let bitwise_xor_expr2 = self.parse_bitwise_xor_expression();
-
-            return ast::Expr::Binary {
+            let right = self.parse_bitwise_xor_expression();
+            expr = ast::Expr::Binary {
                 op: ast::BinOp::BitOr,
-                left: Box::new(bitwise_xor_expr),
-                right: Box::new(bitwise_xor_expr2),
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return bitwise_xor_expr;
+        return expr;
     }
 
     fn parse_bitwise_xor_expression(&mut self) -> ast::Expr {
-        let bitwise_and_expr = self.parse_bitwise_and_expression();
+        let mut expr = self.parse_bitwise_and_expression();
 
-        if self.peek().kind == TokenKind::Caret {
+        while self.peek().kind == TokenKind::Caret {
             self.advance();
-            let bitwise_and_expr2 = self.parse_bitwise_and_expression();
-
-            return ast::Expr::Binary {
+            let right = self.parse_bitwise_and_expression();
+            expr = ast::Expr::Binary {
                 op: ast::BinOp::BitXor,
-                left: Box::new(bitwise_and_expr),
-                right: Box::new(bitwise_and_expr2),
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return bitwise_and_expr;
+        return expr;
     }
 
     fn parse_bitwise_and_expression(&mut self) -> ast::Expr {
-        let eq_expr = self.parse_equality_expression();
+        let mut expr = self.parse_equality_expression();
 
-        if self.peek().kind == TokenKind::Ampersand {
+        while self.peek().kind == TokenKind::Ampersand {
             self.advance();
-            let eq_expr2 = self.parse_equality_expression();
-
-            return ast::Expr::Binary {
+            let right = self.parse_equality_expression();
+            expr = ast::Expr::Binary {
                 op: ast::BinOp::BitAnd,
-                left: Box::new(eq_expr),
-                right: Box::new(eq_expr2),
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return eq_expr;
+        return expr;
     }
 
     fn parse_equality_expression(&mut self) -> ast::Expr {
-        let relational_expr = self.parse_relational_expression();
+        let mut expr = self.parse_relational_expression();
 
-        if self.peek().kind == TokenKind::DoubleEqual {
-            self.advance();
-            let relational_expr2 = self.parse_relational_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Eq,
-                left: Box::new(relational_expr),
-                right: Box::new(relational_expr2),
+        loop {
+            let op = match self.peek().kind {
+                TokenKind::DoubleEqual => ast::BinOp::Eq,
+                TokenKind::NotEqual => ast::BinOp::Ne,
+                _ => break,
             };
-        } else if self.peek().kind == TokenKind::NotEqual {
             self.advance();
-            let relational_expr2 = self.parse_relational_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Ne,
-                left: Box::new(relational_expr),
-                right: Box::new(relational_expr2),
+            let right = self.parse_relational_expression();
+            expr = ast::Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return relational_expr;
+        return expr;
     }
 
-    // TODO: Add 'in' support
-    // A problem is that we do not have a 'In' node in the AST,
-    // only a 'ForIn' in ast::Stmt ...
     fn parse_relational_expression(&mut self) -> ast::Expr {
-        let shift_expr = self.parse_shift_expression();
+        let mut expr = self.parse_shift_expression();
 
-        if self.peek().kind == TokenKind::LessThan {
-            self.advance();
-            let shift_expr2 = self.parse_shift_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Lt,
-                left: Box::new(shift_expr),
-                right: Box::new(shift_expr2),
+        loop {
+            let op = match self.peek().kind {
+                TokenKind::LessThan => ast::BinOp::Lt,
+                TokenKind::GreaterThan => ast::BinOp::Gt,
+                TokenKind::GreaterThanEqual => ast::BinOp::Ge,
+                TokenKind::LessThanEqual => ast::BinOp::Le,
+                TokenKind::In if self.allow_in => ast::BinOp::In,
+                _ => break,
             };
-        } else if self.peek().kind == TokenKind::GreaterThan {
             self.advance();
-            let shift_expr2 = self.parse_shift_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Gt,
-                left: Box::new(shift_expr),
-                right: Box::new(shift_expr2),
-            };
-        } else if self.peek().kind == TokenKind::GreaterThanEqual {
-            self.advance();
-            let shift_expr2 = self.parse_shift_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Ge,
-                left: Box::new(shift_expr),
-                right: Box::new(shift_expr2),
-            };
-        } else if self.peek().kind == TokenKind::LessThanEqual {
-            self.advance();
-            let shift_expr2 = self.parse_shift_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Le,
-                left: Box::new(shift_expr),
-                right: Box::new(shift_expr2),
-            };
-        } else if self.peek().kind == TokenKind::In && self.allow_in {
-            self.advance();
-            let shift_expr2 = self.parse_shift_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::In,
-                left: Box::new(shift_expr),
-                right: Box::new(shift_expr2),
+            let right = self.parse_shift_expression();
+            expr = ast::Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return shift_expr;
+        return expr;
     }
 
     fn parse_shift_expression(&mut self) -> ast::Expr {
-        let add_expr = self.parse_additive_expression();
+        let mut expr = self.parse_additive_expression();
 
-        if self.peek().kind == TokenKind::LeftShift {
-            self.advance();
-            let add_expr2 = self.parse_additive_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Shl,
-                left: Box::new(add_expr),
-                right: Box::new(add_expr2),
+        loop {
+            let op = match self.peek().kind {
+                TokenKind::LeftShift => ast::BinOp::Shl,
+                TokenKind::RightShift => ast::BinOp::Shr,
+                TokenKind::TripleGreaterThan => ast::BinOp::UShr,
+                _ => break,
             };
-        } else if self.peek().kind == TokenKind::RightShift {
             self.advance();
-            let add_expr2 = self.parse_additive_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Shr,
-                left: Box::new(add_expr),
-                right: Box::new(add_expr2),
-            };
-        } else if self.peek().kind == TokenKind::TripleGreaterThan {
-            self.advance();
-            let add_expr2 = self.parse_additive_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::UShr,
-                left: Box::new(add_expr),
-                right: Box::new(add_expr2),
+            let right = self.parse_additive_expression();
+            expr = ast::Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return add_expr;
+        return expr;
     }
 
     fn parse_additive_expression(&mut self) -> ast::Expr {
-        let mul_expr = self.parse_multiplicative_expression();
+        let mut expr = self.parse_multiplicative_expression();
 
-        if self.peek().kind == TokenKind::Plus {
-            self.advance();
-            let mul_expr2 = self.parse_multiplicative_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Add,
-                left: Box::new(mul_expr),
-                right: Box::new(mul_expr2),
+        loop {
+            let op = match self.peek().kind {
+                TokenKind::Plus => ast::BinOp::Add,
+                TokenKind::Minus => ast::BinOp::Sub,
+                _ => break,
             };
-        } else if self.peek().kind == TokenKind::Minus {
             self.advance();
-            let mul_expr2 = self.parse_multiplicative_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Sub,
-                left: Box::new(mul_expr),
-                right: Box::new(mul_expr2),
+            let right = self.parse_multiplicative_expression();
+            expr = ast::Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return mul_expr;
+        return expr;
     }
 
     fn parse_multiplicative_expression(&mut self) -> ast::Expr {
-        let un_expr = self.parse_unary_expression();
+        let mut expr = self.parse_unary_expression();
 
-        if self.peek().kind == TokenKind::Asterisk {
-            self.advance();
-            let un_expr2 = self.parse_unary_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Mul,
-                left: Box::new(un_expr),
-                right: Box::new(un_expr2),
+        loop {
+            let op = match self.peek().kind {
+                TokenKind::Asterisk => ast::BinOp::Mul,
+                TokenKind::Slash => ast::BinOp::Div,
+                TokenKind::Modulo => ast::BinOp::Mod,
+                _ => break,
             };
-        } else if self.peek().kind == TokenKind::Slash {
             self.advance();
-            let un_expr2 = self.parse_unary_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Div,
-                left: Box::new(un_expr),
-                right: Box::new(un_expr2),
-            };
-        } else if self.peek().kind == TokenKind::Modulo {
-            self.advance();
-            let un_expr2 = self.parse_unary_expression();
-
-            return ast::Expr::Binary {
-                op: ast::BinOp::Mod,
-                left: Box::new(un_expr),
-                right: Box::new(un_expr2),
+            let right = self.parse_unary_expression();
+            expr = ast::Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(right),
             };
         }
 
-        return un_expr;
+        return expr;
     }
 
     fn parse_unary_expression(&mut self) -> ast::Expr {
@@ -647,15 +618,40 @@ impl Parser {
     }
 
     fn parse_lefthand_side_expression(&mut self) -> ast::Expr {
-        let expr = self.parse_new_expression();
+        let mut expr = self.parse_new_expression();
 
-        if self.peek().kind == TokenKind::OpenParen {
-            self.advance();
-            let args = self.parse_arguments();
-            return ast::Expr::Call {
-                callee: Box::new(expr),
-                args: Box::new(args),
-            };
+        loop {
+            match self.peek().kind {
+                TokenKind::OpenParen => {
+                    self.advance();
+                    let args = self.parse_arguments();
+                    expr = ast::Expr::Call {
+                        callee: Box::new(expr),
+                        args: Box::new(args),
+                    };
+                }
+                TokenKind::OpenBracket => {
+                    self.advance();
+                    let index = self.parse_expression();
+                    if !self.check_kind(TokenKind::CloseBracket) {
+                        println!("Parser error: expected ']'");
+                        exit(-1);
+                    }
+                    expr = ast::Expr::Index {
+                        object: Box::new(expr),
+                        index: Box::new(index),
+                    };
+                }
+                TokenKind::Dot => {
+                    self.advance();
+                    let name = self.parse_identifier();
+                    expr = ast::Expr::Member {
+                        object: Box::new(expr),
+                        property: name,
+                    };
+                }
+                _ => break,
+            }
         }
 
         return expr;
@@ -694,14 +690,6 @@ impl Parser {
         return ast::Expr::Sequence(args);
     }
 
-    fn parse_argument_list(&mut self) -> Vec<ast::Expr> {
-        let mut outvec = vec![];
-        while !self.check_kind(TokenKind::CloseParen) {
-            outvec.push(self.parse_assignment_expression());
-        }
-        return outvec;
-    }
-
     fn parse_member_expression(&mut self) -> ast::Expr {
         let mut expr: ast::Expr;
 
@@ -725,7 +713,6 @@ impl Parser {
          expr = self.parse_primary_expression();
         }
 
-        // Chaînage des accès membres
         loop {
             match self.peek().kind {
                 TokenKind::OpenBracket => {
@@ -951,7 +938,11 @@ impl Parser {
     fn parse_variable_declaration_list(&mut self) -> Vec<(String, Option<ast::Expr>)> {
         let mut vars: Vec<(String, Option<ast::Expr>)> = vec![];
 
-        while self.peek().kind == TokenKind::Identifier {
+        if self.peek().kind != TokenKind::Identifier {
+            return vars;
+        }
+
+        loop {
             let name: String = self.peek().content.clone();
             let mut init: ast::Expr = ast::Expr::Literal(ast::Literal::Undefined);
             self.advance();
@@ -961,6 +952,14 @@ impl Parser {
             }
 
             vars.push((name, Some(init)));
+
+            if !self.check_kind(TokenKind::Comma) {
+                break;
+            }
+            if self.peek().kind != TokenKind::Identifier {
+                println!("Parser error: expected identifier after ',' in variable declaration");
+                exit(-1);
+            }
         }
 
         return vars;
@@ -1004,15 +1003,12 @@ impl Parser {
 
     fn parse_iteration_statement(&mut self) -> ast::Stmt {
         let expr: ast::Expr;
-        let stmt: ast::Stmt;
+        let mut stmt: ast::Stmt = ast::Stmt::Empty;
         if self.check_kind(TokenKind::While) {
             if self.check_kind(TokenKind::OpenParen) {
                 expr = self.parse_expression();
                 if self.check_kind(TokenKind::CloseParen) {
                     stmt = self.parse_statement();
-                } else {
-                    println!("Parser error: Parenthese not closed");
-                    exit(-1);
                 }
 
                 return ast::Stmt::While {
@@ -1035,6 +1031,28 @@ impl Parser {
                 if self.check_kind(TokenKind::Var) {
                     firstvar = self.parse_variable_declaration_list();
 
+                    if self.check_kind(TokenKind::In) {
+                        if firstvar.len() != 1 {
+                            println!("Parser error: expected a single variable in 'for...in'");
+                            exit(-1);
+                        }
+                        let name = firstvar[0].0.clone();
+                        second = self.parse_expression();
+
+                        if !self.check_kind(TokenKind::CloseParen) {
+                            println!("Parser error: Expected ')' after '('");
+                            exit(-1);
+                        }
+
+                        body = self.parse_statement();
+
+                        return ast::Stmt::ForIn {
+                            var: name,
+                            expr: second,
+                            body: Box::new(body),
+                        };
+                    }
+
                     if self.check_kind(TokenKind::SemiColon) {
                         if !self.check_kind(TokenKind::SemiColon) {
                             third = ast::Expr::Empty;
@@ -1046,15 +1064,6 @@ impl Parser {
                             body = self.parse_statement();
                         }
                         second = self.parse_expression();
-                    } else if self.check_kind(TokenKind::In) {
-                        second = self.parse_expression();
-
-                        if !self.check_kind(TokenKind::CloseParen) {
-                            println!("Parser error: Expected ')' after '('");
-                            exit(-1);
-                        }
-
-                        body = self.parse_statement();
                     }
 
                     return ast::Stmt::For {
@@ -1085,8 +1094,34 @@ impl Parser {
                         body: Box::new(body),
                     };
                 } else {
+                    let prev_allow_in = self.allow_in;
                     self.allow_in = false;
                     first = self.parse_expression(); // for (ExpressionNoIn opt; Expression opt ; Expression opt ) Statement
+                    self.allow_in = prev_allow_in;
+
+                    if self.check_kind(TokenKind::In) {
+                        let name = match first {
+                            ast::Expr::Identifier(n) => n,
+                            _ => {
+                                println!("Parser error: expected identifier before 'in' in 'for...in'");
+                                exit(-1);
+                            }
+                        };
+                        second = self.parse_expression();
+
+                        if !self.check_kind(TokenKind::CloseParen) {
+                            println!("Parser error: Expected ')' after '('");
+                            exit(-1);
+                        }
+
+                        body = self.parse_statement();
+
+                        return ast::Stmt::ForIn {
+                            var: name,
+                            expr: second,
+                            body: Box::new(body),
+                        };
+                    }
 
                     if self.check_kind(TokenKind::SemiColon) {
                         if !self.check_kind(TokenKind::SemiColon) {
@@ -1118,9 +1153,6 @@ impl Parser {
         }
     }
 
-    // NOTE: The grammar does not look logical
-    // ContinueStatement :
-    //  continue [no LineTerminator here] Identifier_opt ;
     fn parse_continue_statement(&mut self) -> ast::Stmt {
         if self.check_kind(TokenKind::Continue) {
             return ast::Stmt::Continue;
@@ -1133,9 +1165,6 @@ impl Parser {
         exit(-1);
     }
 
-    // NOTE: The grammar does not look logical
-    // BreakStatement :
-    //  break [no LineTerminator here] Identifier_opt ;
     fn parse_break_statement(&mut self) -> ast::Stmt {
         if self.check_kind(TokenKind::Break) {
             return ast::Stmt::Break;
@@ -1148,9 +1177,6 @@ impl Parser {
         exit(-1);
     }
 
-    // NOTE: The grammar does not look logical
-    // ReturnStatement :
-    //  return [no LineTerminator here] Identifier_opt ;
     fn parse_return_statement(&mut self) -> ast::Stmt {
         let expr: ast::Expr;
 
