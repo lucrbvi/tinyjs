@@ -1297,7 +1297,6 @@ impl Parser {
 
     fn parse_with_statement(&mut self) -> ast::Stmt {
         assert!(self.check_kind(TokenKind::With));
-        self.advance();
 
         if !self.check_kind(TokenKind::OpenParen) {
             self.error(format!(

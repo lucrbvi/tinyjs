@@ -103,7 +103,6 @@ pub enum TokenKind {
     EOF,
 }
 
-// TODO: Add a line/column tracking for debugging
 #[derive(Clone)]
 pub struct Token {
     pub content: String,
