@@ -10,6 +10,7 @@ pub struct Parser {
     pub tokens: Vec<Token>,
     pub pos: usize,
     pub allow_in: bool, // used to exclude parsing "in" in certain scenarios
+    pub source: String,
 }
 
 impl Parser {
@@ -30,6 +31,117 @@ impl Parser {
         let tok = self.tokens[self.pos].clone();
         self.pos += 1;
         return tok;
+    }
+
+    fn error_at(&self, token: &Token, msg: String) -> ! {
+        println!(
+            "Parser error at {}:{}: {}",
+            token.line + 1,
+            token.col + 1,
+            msg
+        );
+        if !self.source.is_empty() {
+            if let Some((context, caret)) = self.context_line(token.line, token.col) {
+                let prefix = "Context: '";
+                println!("{}{}'", prefix, context);
+                println!("{}^ Error here", " ".repeat(prefix.len() + caret));
+            } else {
+                println!("Context: {}", self.context_around(2));
+            }
+        } else {
+            println!("Context: {}", self.context_around(2));
+        }
+        exit(-1);
+    }
+
+    fn error(&self, msg: String) -> ! {
+        self.error_at(self.peek(), msg);
+    }
+
+    fn context_around(&self, radius: usize) -> String {
+        if self.tokens.is_empty() {
+            return "(no tokens)".to_string();
+        }
+
+        let center = self.pos.min(self.tokens.len().saturating_sub(1));
+        let start = center.saturating_sub(radius);
+        let end = (center + radius).min(self.tokens.len().saturating_sub(1));
+
+        let mut out: Vec<String> = Vec::new();
+        for i in start..=end {
+            let tok = &self.tokens[i];
+            let label = if tok.kind == TokenKind::EOF {
+                "EOF".to_string()
+            } else {
+                tok.content.clone()
+            };
+            if i == center {
+                out.push(format!("[{}]", label));
+            } else {
+                out.push(label);
+            }
+        }
+
+        out.join(" ")
+    }
+
+    fn context_line(&self, line_idx: usize, col: usize) -> Option<(String, usize)> {
+        let mut current_line = 0usize;
+        let mut line_start = 0usize;
+        let mut line_end = self.source.len();
+
+        for (i, ch) in self.source.char_indices() {
+            if ch == '\n' {
+                if current_line == line_idx {
+                    line_end = i;
+                    break;
+                }
+                current_line += 1;
+                line_start = i + 1;
+            }
+        }
+
+        if current_line != line_idx {
+            if line_idx != current_line {
+                return None;
+            }
+        }
+
+        let mut line = self.source[line_start..line_end].to_string();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        let len = chars.len();
+        if len == 0 {
+            return None;
+        }
+        let col = col.min(len);
+        let radius = 20usize;
+        let start = col.saturating_sub(radius);
+        let end = (col + radius).min(len);
+
+        let mut snippet = String::new();
+        let mut caret = 0usize;
+
+        if start > 0 {
+            snippet.push_str("... ");
+            caret += 4;
+        }
+
+        for (i, ch) in chars.iter().enumerate().take(end).skip(start) {
+            snippet.push(*ch);
+            if i < col {
+                caret += 1;
+            }
+        }
+
+        if end < len {
+            snippet.push_str(" ...");
+        }
+
+        Some((snippet, caret))
     }
 
     fn parse_expression(&mut self) -> ast::Expr {
@@ -117,19 +229,17 @@ impl Parser {
                 let expr = self.parse_expression();
 
                 if self.peek().kind != TokenKind::CloseParen {
-                    println!(
-                        "Parser error: Unexpected token '{}', expected ')'",
+                    self.error(format!(
+                        "Unexpected token '{}', expected ')'",
                         self.peek().content
-                    );
-                    exit(-1);
+                    ));
                 }
 
                 self.advance();
                 return expr;
             }
             _ => {
-                println!("Parser error: unexpected token '{}' in expression", x.content);
-                exit(-1);
+                self.error(format!("unexpected token '{}' in expression", x.content));
             }
         }
     }
@@ -142,8 +252,7 @@ impl Parser {
         let props = self.parse_property_name_and_value_list();
 
         if !self.check_kind(TokenKind::CloseCurly) {
-            println!("Parser error: expected '}}' after object");
-            exit(-1);
+            self.error("expected '}' after object".to_string());
         }
 
         return ast::Expr::Literal(ast::Literal::Object(props));
@@ -163,13 +272,17 @@ impl Parser {
             } else if self.peek().kind == TokenKind::Identifier {
                 property_name = ast::PropertyKey::Identifier(self.parse_identifier());
             } else {
-                println!("Parser error: Expected a String or a Number or an Identifier but found '{}' of type {:#?}", self.peek().content, self.peek().kind);
-                exit(-1);
+                self.error(format!(
+                    "Expected a String or a Number or an Identifier but found '{}' of type {:#?}",
+                    self.peek().content, self.peek().kind
+                ));
             }
 
             if !self.check_kind(TokenKind::DoubleDot) {
-                println!("Parser error: Expected ':' in object but found '{}'", self.peek().content);
-                exit(-1);
+                self.error(format!(
+                    "Expected ':' in object but found '{}'",
+                    self.peek().content
+                ));
             }
 
             let assignment_expr = self.parse_assignment_expression();
@@ -213,8 +326,7 @@ impl Parser {
                     break;
                 }
                 _ => {
-                    println!("Parser error: expected ',' or ']' in array");
-                    exit(-1);
+                    self.error("expected ',' or ']' in array".to_string());
                 }
             }
         }
@@ -293,8 +405,10 @@ impl Parser {
                 return ast::AssignOp::BitOrAssign;
             }
             _ => {
-                println!("Parser error: illegal assignement operator '{}'", x.content);
-                exit(-1);
+                self.error_at(
+                    &x,
+                    format!("illegal assignement operator '{}'", x.content),
+                );
             }
         }
     }
@@ -315,8 +429,10 @@ impl Parser {
                     else_: Box::new(assign_expr2),
                 };
             } else {
-                println!("Parser error: expected ':' in conditional expression but found '{}'", self.peek().content);
-                exit(-1);
+                self.error(format!(
+                    "expected ':' in conditional expression but found '{}'",
+                    self.peek().content
+                ));
             }
         }
 
@@ -638,8 +754,7 @@ impl Parser {
                     self.advance();
                     let index = self.parse_expression();
                     if !self.check_kind(TokenKind::CloseBracket) {
-                        println!("Parser error: expected ']'");
-                        exit(-1);
+                        self.error("expected ']'".to_string());
                     }
                     expr = ast::Expr::Index {
                         object: Box::new(expr),
@@ -685,8 +800,7 @@ impl Parser {
                     break;
                 }
                 _ => {
-                    println!("Parser error: expected ',' or ')' in arguments");
-                    exit(-1);
+                    self.error("expected ',' or ')' in arguments".to_string());
                 }
             }
         }
@@ -723,8 +837,7 @@ impl Parser {
                     self.advance();
                     let index = self.parse_expression();
                     if !self.check_kind(TokenKind::CloseBracket) {
-                        println!("Parser error: expected ']'");
-                        exit(-1);
+                        self.error("expected ']'".to_string());
                     }
                     expr = ast::Expr::Index {
                         object: Box::new(expr),
@@ -759,20 +872,17 @@ impl Parser {
         }
 
         if !self.check_kind(TokenKind::OpenParen) {
-            println!("Parser error: expected '(' after function name");
-            exit(-1);
+            self.error("expected '(' after function name".to_string());
         }
 
         let params = self.parse_parameter_list();
 
         if !self.check_kind(TokenKind::CloseParen) {
-            println!("Parser error: Not found ')' after '('");
-            exit(-1);
+            self.error("Not found ')' after '('".to_string());
         }
 
         if !self.check_kind(TokenKind::OpenCurly) {
-            println!("Parser error: expected '{{' after ')'");
-            exit(-1);
+            self.error("expected '{' after ')'".to_string());
         }
 
         let body = self.parse_function_body();
@@ -789,8 +899,10 @@ impl Parser {
 
         loop {
             if self.peek().kind != TokenKind::Identifier {
-                println!("Parser error: expected identifier in parameter list, found '{}'", self.peek().content);
-                exit(-1);
+                self.error(format!(
+                    "expected identifier in parameter list, found '{}'",
+                    self.peek().content
+                ));
             }
             outvec.push(self.parse_identifier());
 
@@ -802,8 +914,7 @@ impl Parser {
                     break;
                 }
                 _ => {
-                    println!("Parser error: expected ',' or ')' in parameter list");
-                    exit(-1);
+                    self.error("expected ',' or ')' in parameter list".to_string());
                 }
             }
         }
@@ -819,8 +930,7 @@ impl Parser {
         }
 
         if !self.check_kind(TokenKind::CloseCurly) {
-            println!("Parser error: expected '}}' in function body");
-            exit(-1);
+            self.error("expected '}' in function body".to_string());
         } 
 
         body
@@ -830,20 +940,17 @@ impl Parser {
         let name: String = self.parse_identifier();
 
         if !self.check_kind(TokenKind::OpenParen) {
-            println!("Parser error: expected '(' after function name");
-            exit(-1);
+            self.error("expected '(' after function name".to_string());
         }
 
         let params = self.parse_parameter_list();
 
         if !self.check_kind(TokenKind::CloseParen) {
-            println!("Parser error: Not found ')' after '('");
-            exit(-1);
+            self.error("Not found ')' after '('".to_string());
         }
 
         if !self.check_kind(TokenKind::OpenCurly) {
-            println!("Parser error: expected '{{' after ')'");
-            exit(-1);
+            self.error("expected '{' after ')'".to_string());
         }
 
         let body = self.parse_function_body();
@@ -900,8 +1007,7 @@ impl Parser {
 
     fn parse_block(&mut self) -> ast::Stmt {
         if !self.check_kind(TokenKind::OpenCurly) {
-            println!("Parser error: expected '{{'");
-            exit(-1);
+            self.error("expected '{'".to_string());
         }
 
         if self.peek().kind == TokenKind::CloseCurly {
@@ -912,8 +1018,7 @@ impl Parser {
         let stmts = self.parse_statement_list();
 
         if !self.check_kind(TokenKind::CloseCurly) {
-            println!("Parser error: expected '}}'");
-            exit(-1);
+            self.error("expected '}'".to_string());
         }
 
         ast::Stmt::Block(stmts)
@@ -935,8 +1040,7 @@ impl Parser {
             self.consume_semicolon_or_insert();
             return ast::Stmt::Var(vars);
         }
-        println!("Parser error: 'var' expected but not found in parse_variable_statement()");
-        exit(-1);
+        self.error("'var' expected but not found in parse_variable_statement()".to_string());
     }
 
     fn parse_variable_declaration_list(&mut self) -> Vec<(String, Option<ast::Expr>)> {
@@ -961,8 +1065,7 @@ impl Parser {
                 break;
             }
             if self.peek().kind != TokenKind::Identifier {
-                println!("Parser error: expected identifier after ',' in variable declaration");
-                exit(-1);
+                self.error("expected identifier after ',' in variable declaration".to_string());
             }
         }
 
@@ -995,14 +1098,12 @@ impl Parser {
                         };
                     }
                 } else {
-                    println!("Parser error: Parenthese not closed");
-                    exit(-1);
+                    self.error("Parenthese not closed".to_string());
                 }
             }
         }
 
-        println!("Parser error: 'if' keyword is missing (source: parse_if_statement())");
-        exit(-1);
+        self.error("'if' keyword is missing (source: parse_if_statement())".to_string());
     }
 
     fn parse_iteration_statement(&mut self) -> ast::Stmt {
@@ -1020,8 +1121,7 @@ impl Parser {
                     body: Box::new(stmt),
                 };
             } else {
-                println!("Parser error: Expected '(' after the 'while' keyword");
-                exit(-1);
+                self.error("Expected '(' after the 'while' keyword".to_string());
             }
         } else if self.check_kind(TokenKind::For) {
             let first: ast::Expr;
@@ -1037,15 +1137,13 @@ impl Parser {
 
                     if self.check_kind(TokenKind::In) {
                         if firstvar.len() != 1 {
-                            println!("Parser error: expected a single variable in 'for...in'");
-                            exit(-1);
+                            self.error("expected a single variable in 'for...in'".to_string());
                         }
                         let name = firstvar[0].0.clone();
                         second = self.parse_expression();
 
                         if !self.check_kind(TokenKind::CloseParen) {
-                            println!("Parser error: Expected ')' after '('");
-                            exit(-1);
+                            self.error("Expected ')' after '('".to_string());
                         }
 
                         body = self.parse_statement();
@@ -1061,8 +1159,7 @@ impl Parser {
                         if !self.check_kind(TokenKind::SemiColon) {
                             third = ast::Expr::Empty;
                             if !self.check_kind(TokenKind::CloseParen) {
-                                println!("Parser error: Expected ')' after '('");
-                                exit(-1);
+                                self.error("Expected ')' after '('".to_string());
                             }
 
                             body = self.parse_statement();
@@ -1082,13 +1179,11 @@ impl Parser {
                     if self.check_kind(TokenKind::In) {
                         second = self.parse_expression();
                     } else {
-                        println!("Parser error: Expected 'in' after a lefthand sided expression in a 'for' loop");
-                        exit(-1);
+                        self.error("Expected 'in' after a lefthand sided expression in a 'for' loop".to_string());
                     }
 
                     if !self.check_kind(TokenKind::CloseParen) {
-                        println!("Parser error: Expected ')' after '('");
-                        exit(-1);
+                        self.error("Expected ')' after '('".to_string());
                     }
 
                     return ast::Stmt::For {
@@ -1107,15 +1202,13 @@ impl Parser {
                         let name = match first {
                             ast::Expr::Identifier(n) => n,
                             _ => {
-                                println!("Parser error: expected identifier before 'in' in 'for...in'");
-                                exit(-1);
+                                self.error("expected identifier before 'in' in 'for...in'".to_string());
                             }
                         };
                         second = self.parse_expression();
 
                         if !self.check_kind(TokenKind::CloseParen) {
-                            println!("Parser error: Expected ')' after '('");
-                            exit(-1);
+                            self.error("Expected ')' after '('".to_string());
                         }
 
                         body = self.parse_statement();
@@ -1131,8 +1224,7 @@ impl Parser {
                         if !self.check_kind(TokenKind::SemiColon) {
                             third = ast::Expr::Empty;
                             if !self.check_kind(TokenKind::CloseParen) {
-                                println!("Parser error: Expected ')' after '('");
-                                exit(-1);
+                                self.error("Expected ')' after '('".to_string());
                             }
                         }
                         second = self.parse_expression();
@@ -1148,12 +1240,10 @@ impl Parser {
                     };
                 }
             } else {
-                println!("Parser error: Expected '(' after the 'for' keyword");
-                exit(-1);
+                self.error("Expected '(' after the 'for' keyword".to_string());
             }
         } else {
-            println!("Parser error: No more options for iteration statement");
-            exit(-1);
+            self.error("No more options for iteration statement".to_string());
         }
     }
 
@@ -1163,11 +1253,10 @@ impl Parser {
             return ast::Stmt::Continue;
         }
 
-        println!(
-            "Parser error: Expected 'continue' but found '{}'",
+        self.error(format!(
+            "Expected 'continue' but found '{}'",
             self.peek().content
-        );
-        exit(-1);
+        ));
     }
 
     fn parse_break_statement(&mut self) -> ast::Stmt {
@@ -1176,11 +1265,10 @@ impl Parser {
             return ast::Stmt::Break;
         }
 
-        println!(
-            "Parser error: Expected 'break' but found '{}'",
+        self.error(format!(
+            "Expected 'break' but found '{}'",
             self.peek().content
-        );
-        exit(-1);
+        ));
     }
 
     fn parse_return_statement(&mut self) -> ast::Stmt {
@@ -1201,11 +1289,10 @@ impl Parser {
             return ast::Stmt::Return(Some(expr));
         }
 
-        println!(
-            "Parser error: Expected 'return' but found '{}'",
+        self.error(format!(
+            "Expected 'return' but found '{}'",
             self.peek().content
-        );
-        exit(-1);
+        ));
     }
 
     fn parse_with_statement(&mut self) -> ast::Stmt {
@@ -1213,22 +1300,20 @@ impl Parser {
         self.advance();
 
         if !self.check_kind(TokenKind::OpenParen) {
-            println!(
-                "Parser error: Expected '(' but found '{}'",
+            self.error(format!(
+                "Expected '(' but found '{}'",
                 self.peek().content
-            );
-            exit(-1);
+            ));
         }
         self.advance();
 
         let expr = self.parse_expression();
 
         if !self.check_kind(TokenKind::CloseParen) {
-            println!(
-                "Parser error: Expected ')' but found '{}'",
+            self.error(format!(
+                "Expected ')' but found '{}'",
                 self.peek().content
-            );
-            exit(-1);
+            ));
         }
         self.advance();
 
@@ -1250,8 +1335,7 @@ impl Parser {
         {
             return;
         }
-        println!("Parser error: expected ';'");
-        exit(-1);
+        self.error("expected ';'".to_string());
     }
 
     pub fn parse(&mut self, tokens: Vec<Token>) -> ast::Program {

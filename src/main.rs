@@ -2,11 +2,13 @@ use tinyjs::lexer;
 use tinyjs::parser;
 
 fn main() {
+    let source = "var i=0; while(i++<5){console.log('Hello')} var b = {a: 16.2}; var c = undefined; var d = !{}".to_string();
     let mut lex = lexer::Lexer {
-        source: "var i=0; while(i++<5){console.log('Hello')} var b = {a: 16.2}; var c = undefined; var d = !{}".to_string(),
+        source: source.clone(),
         cursor: lexer::Cursor { row: 0, line: 0 },
         line: 0,
         row: 0,
+        prev_cr: false,
     };
 
     let tokens = lex.walk();
@@ -15,6 +17,7 @@ fn main() {
         tokens: Vec::new(),
         pos: 0,
         allow_in: true,
+        source,
     };
 
     let program = parser.parse(tokens);

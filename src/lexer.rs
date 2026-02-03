@@ -109,6 +109,8 @@ pub struct Token {
     pub content: String,
     pub kind: TokenKind,
     pub line_terminator_before: bool,
+    pub line: usize,
+    pub col: usize,
 }
 
 pub struct Lexer {
@@ -116,11 +118,12 @@ pub struct Lexer {
     pub cursor: Cursor,
     pub line: usize,
     pub row: usize,
+    pub prev_cr: bool,
 }
 
 impl Lexer {
     fn get_next_char(&mut self) -> char {
-        return self
+        let c = self
             .source
             .chars()
             .nth({
@@ -129,6 +132,28 @@ impl Lexer {
                 tmp
             })
             .unwrap_or('\0');
+
+        if c == '\0' {
+            return c;
+        }
+
+        if c == '\r' {
+            self.cursor.line += 1;
+            self.cursor.row = 0;
+            self.prev_cr = true;
+        } else if c == '\n' {
+            if self.prev_cr {
+                self.prev_cr = false;
+            } else {
+                self.cursor.line += 1;
+                self.cursor.row = 0;
+            }
+        } else {
+            self.cursor.row += 1;
+            self.prev_cr = false;
+        }
+
+        return c;
     }
 
     fn keyword_kind(s: &str) -> TokenKind {
@@ -205,6 +230,16 @@ impl Lexer {
         }
     }
 
+    fn error(&self, msg: &str) -> ! {
+        println!(
+            "Lexer error at {}:{}: {}",
+            self.cursor.line + 1,
+            self.cursor.row + 1,
+            msg
+        );
+        exit(-1);
+    }
+
     fn skip_comment(&mut self) -> bool {
         if self.get_current_char() != '/' {
             return false;
@@ -234,8 +269,7 @@ impl Lexer {
                     let c = self.get_next_char();
 
                     if c == '\0' {
-                        println!("Lexer error: EOF in a comment");
-                        exit(-1);
+                        self.error("EOF in a comment");
                     }
 
                     if prev == '*' && c == '/' {
@@ -282,10 +316,15 @@ impl Lexer {
             break;
         }
 
+        let start_line = self.cursor.line;
+        let start_col = self.cursor.row;
+
         let mut token = Token {
             kind: TokenKind::EOF,
             content: "EOF".to_string(),
             line_terminator_before: saw_line_terminator,
+            line: start_line,
+            col: start_col,
         };
 
         let x: char = self.get_next_char();
@@ -456,15 +495,13 @@ impl Lexer {
                 loop {
                     let c = self.get_next_char();
                     if c == '\0' {
-                        println!("Lexer error: EOF in string");
-                        exit(-1);
+                        self.error("EOF in string");
                     }
                     if c == '\\' {
                         s.push(c);
                         let next = self.get_next_char();
                         if next == '\0' {
-                            println!("Lexer error: EOF in string escape");
-                            exit(-1);
+                            self.error("EOF in string escape");
                         }
                         s.push(next);
                         continue;
@@ -568,8 +605,7 @@ impl Lexer {
 
                     let next = self.get_current_char();
                     if next.is_alphabetic() || next == '$' || next == '_' {
-                        println!("Lexer error: missing separator after number literal");
-                        exit(-1);
+                        self.error("missing separator after number literal");
                     }
 
                     token.content = s;
@@ -592,8 +628,7 @@ impl Lexer {
 
                     return token;
                 }
-                println!("Lexer error: Unknown token start '{}'", x);
-                exit(-1);
+                self.error(&format!("Unknown token start '{}'", x));
             }
         }
     }
