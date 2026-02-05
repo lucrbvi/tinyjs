@@ -937,6 +937,10 @@ impl Parser {
     }
 
     fn parse_function_declaration(&mut self) -> ast::Function {
+        if !self.check_kind(TokenKind::Function) {
+            self.error("expected 'function' keyword".to_string());
+        }
+
         let name: String = self.parse_identifier();
 
         if !self.check_kind(TokenKind::OpenParen) {

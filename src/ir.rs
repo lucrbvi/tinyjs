@@ -4,6 +4,8 @@
  *  - Arrays are dynamic and are used to represent objects and arrays (you can delete a key by setting it to Undefined)
  *  - Prototypes properties are injected in an object by the AST->IR compiler
  *
+ *  The AST->IR compiler implement most of the rules of ES1 seen in the standard paper
+ *
  * Here is an example of a program in our IR
  * JS version: 'function add(a, b) { return a+b }; add(5, 2)'
  * IR version:
@@ -12,6 +14,10 @@
  *  FnEnd()
  *  FnCall([5, 2])
  */
+
+use crate::ast;
+
+use std::process::exit;
 
 #[derive(Debug, Clone)]
 pub enum Operand {
@@ -44,13 +50,13 @@ pub enum Function {
     Mod((Operand, Operand)),
     Div((Operand, Operand)),
     Pow((Operand, Operand)),
-    Inv(Operand), // return the inverse of a boolean (true -> false ; false -> true) 
+    Inv(Operand), // return the inverse of a boolean (true -> false ; false -> true)
     Equal((Operand, Operand)), // a == b
     NotEqual((Operand, Operand)), // a != b
-    LessThan((Operand, Operand)) // a < b
-    GreaterThan((Operand, Operand)) // a > b
-    LessThanEqual((Operand, Operand)) // a <= b
-    GreaterThanEqual((Operand, Operand)) // a >= b
+    LessThan((Operand, Operand)), // a < b
+    GreaterThan((Operand, Operand)), // a > b
+    LessThanEqual((Operand, Operand)), // a <= b
+    GreaterThanEqual((Operand, Operand)), // a >= b
 }
 
 // Functions that do not return anything
@@ -65,6 +71,7 @@ pub enum SoloFunction {
     FnEnd(), // end a function block
     Return(Option<Operand>),
     FnCall(String, Operand), // Operand = (...) with another operands inside (like a JS object)
+    Call(Operand, Operand) // Call the first operand as a function
 }
 
 #[derive(Debug)]
@@ -80,4 +87,106 @@ pub enum Instruction {
         dest: String,
         function: Function, // function store the arguments
     },
+}
+
+// AST -> IR
+pub struct Compiler {
+    pub source: ast::Program,
+    pub pos: usize,
+    pub output: Program,
+    pub label_stack: i64,
+}
+
+impl Compiler {
+    fn advance(&mut self) {
+        self.pos += 1;
+    }
+
+    fn peek(&self) -> &ast::Stmt {
+        &self.source.body[self.pos]
+    }
+
+    fn emit(&mut self, instr: Instruction) {
+        self.output.body.push(instr);
+    }
+
+    fn error(&mut self, msg: String) {
+        println!("IR Compiler error: {}", msg);
+        exit(-1);
+    }
+
+    fn new_label(&mut self) -> Instruction {
+        self.label_stack += 1;
+        return Instruction::Call{function:SoloFunction::Label(self.label_stack)};
+    }
+
+    // big switch statement
+    pub fn parse(&mut self) {
+        let stmt = self.peek();
+        match stmt {
+            ast::Stmt::Var(_) => {
+                self.parse_var();
+            },
+            ast::Stmt::Function(_) => {
+                self.parse_function();
+            },
+            ast::Stmt::Block(_) => {
+                self.parse_block();
+            },
+            ast::Stmt::Expr(_) => {
+                self.parse_expression();
+            },
+            ast::Stmt::If { cond: _, then_: _, else_: _ } => {
+                self.parse_if();
+            },
+            ast::Stmt::While { cond: _, body: _ } => {
+                self.parse_while(stmt);
+            },
+            ast::Stmt::ForIn { var: _, expr: _, body: _ } => {
+                self.parse_for_in();
+            },
+            ast::Stmt::With { expr: _, body: _ } => {
+                self.parse_with();
+            },
+            _ => {
+                self.advance();
+                self.parse();
+            }
+        }
+    }
+
+    /*
+     * JS version: while(true) { console.log("hi") }
+     *
+     * IR version:
+     *  label(0)
+     *      jumpif(cond, 1)
+     *      jump(2)
+     *  label(1)
+     *      call(console['log'], ("hi"))
+     *  label(2)
+     */
+    pub fn parse_while(&mut self, s: &ast::Stmt) {
+        if (s != &ast::Stmt::While { cond: _, body: _ }) {
+            self.error(format!("expected a while statement in parse_while but got {:#?}", s));
+        }
+
+        let begin = self.new_label();
+        let body_label = self.new_label();
+
+        self.emit(begin);
+        let cond = self.parse_expression(s.&cond);
+        self.emit(Instruction::Call{
+            function: SoloFunction::JumpIf(cond, self.label_stack), // jump to body if cond == true
+        });
+        self.emit(Instruction::Call{
+            function: SoloFunction::Jump(cond, self.label_stack + 1), // jump to exit
+        });
+        self.emit(body_label);
+        let body = self.parse_statement();
+        self.emit(body);
+
+        let exit_label = self.new_label();
+        self.emit(exit_label);
+    }
 }
