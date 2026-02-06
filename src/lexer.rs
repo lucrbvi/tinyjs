@@ -28,6 +28,7 @@ pub enum TokenKind {
     False,
     Null,
 
+    /*
     // future reserved keywords
     Case,
     Debugger,
@@ -44,8 +45,8 @@ pub enum TokenKind {
     Const,
     Enum,
     Import,
-    Try,
-    Undefined,
+    Try, 
+    */
 
     // symbols
     SemiColon,
@@ -96,6 +97,7 @@ pub enum TokenKind {
     CloseCurly,
     BackSlash,
 
+    Undefined,
     Identifier,
     Number,
     String,
@@ -178,6 +180,7 @@ impl Lexer {
             "null" => TokenKind::Null,
             "undefined" => TokenKind::Undefined,
 
+            /*
             "case" => TokenKind::Case,
             "debugger" => TokenKind::Debugger,
             "export" => TokenKind::Export,
@@ -194,6 +197,7 @@ impl Lexer {
             "enum" => TokenKind::Enum,
             "import" => TokenKind::Import,
             "try" => TokenKind::Try,
+            */
 
             _ => TokenKind::Identifier,
         }
@@ -258,7 +262,6 @@ impl Lexer {
 
                 true
             }
-
             '*' => {
                 self.get_next_char();
                 self.get_next_char();
@@ -360,6 +363,11 @@ impl Lexer {
             ']' => {
                 token.content = "]".to_string();
                 token.kind = TokenKind::CloseBracket;
+                return token;
+            }
+            ',' => {
+                token.content = ",".to_string();
+                token.kind = TokenKind::Comma;
                 return token;
             }
             ';' => {

@@ -1,0 +1,2 @@
+- You must run `cargo check` after introducing new code
+- If you change the lexer or parser please run `cargo test -- --no-capture`

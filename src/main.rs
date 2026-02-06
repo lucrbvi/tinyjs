@@ -2,7 +2,6 @@ use tinyjs::lexer;
 use tinyjs::parser;
 
 fn main() {
-    // FIXME: The for() statement is broken
     let source = "var i=0; while(i++<5){if (i==4) {break;} console.log('hi')} var b = {a: 16.2}; var c = undefined; var d = !{}\nfunction nen() {\n return 15-2;\n};".to_string();
     let mut lex = lexer::Lexer {
         source: source.clone(),

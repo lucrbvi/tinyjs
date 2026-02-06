@@ -985,7 +985,7 @@ impl Parser {
             TokenKind::If => {
                 return self.parse_if_statement();
             }
-            TokenKind::Do | TokenKind::While | TokenKind::For => {
+            TokenKind::While | TokenKind::For => {
                 return self.parse_iteration_statement();
             }
             TokenKind::Continue => {
@@ -1128,23 +1128,18 @@ impl Parser {
                 self.error("Expected '(' after the 'while' keyword".to_string());
             }
         } else if self.check_kind(TokenKind::For) {
-            let first: ast::Expr;
-            let firstvar: Vec<(String, Option<ast::Expr>)>;
-            let mut second: ast::Expr = ast::Expr::Literal(ast::Literal::Undefined);
-            let mut third: ast::Expr = ast::Expr::Literal(ast::Literal::Undefined);
-            let mut body: ast::Stmt = ast::Stmt::Empty;
+            let body: ast::Stmt;
 
             if self.check_kind(TokenKind::OpenParen) {
-                // if ExpressionNoIn opt ;
                 if self.check_kind(TokenKind::Var) {
-                    firstvar = self.parse_variable_declaration_list();
+                    let firstvar = self.parse_variable_declaration_list();
 
                     if self.check_kind(TokenKind::In) {
                         if firstvar.len() != 1 {
                             self.error("expected a single variable in 'for...in'".to_string());
                         }
                         let name = firstvar[0].0.clone();
-                        second = self.parse_expression();
+                        let expr = self.parse_expression();
 
                         if !self.check_kind(TokenKind::CloseParen) {
                             self.error("Expected ')' after '('".to_string());
@@ -1154,92 +1149,103 @@ impl Parser {
 
                         return ast::Stmt::ForIn {
                             var: name,
-                            expr: second,
+                            expr,
                             body: Box::new(body),
                         };
                     }
 
-                    if self.check_kind(TokenKind::SemiColon) {
+                    let cond = if self.check_kind(TokenKind::SemiColon) {
+                        None
+                    } else {
+                        let expr = self.parse_expression();
                         if !self.check_kind(TokenKind::SemiColon) {
-                            third = ast::Expr::Empty;
+                            self.error("Expected ';' after condition in 'for'".to_string());
+                        }
+                        Some(expr)
+                    };
+
+                    let update = if self.check_kind(TokenKind::CloseParen) {
+                        None
+                    } else {
+                        let expr = self.parse_expression();
+                        if !self.check_kind(TokenKind::CloseParen) {
+                            self.error("Expected ')' after update in 'for'".to_string());
+                        }
+                        Some(expr)
+                    };
+
+                    body = self.parse_statement();
+
+                    return ast::Stmt::For {
+                        init: Some(ast::ForInit::Var(firstvar)),
+                        cond,
+                        update,
+                        body: Box::new(body),
+                    };
+                } else {
+                    let mut init: Option<ast::ForInit> = None;
+
+                    if !self.check_kind(TokenKind::SemiColon) {
+                        let prev_allow_in = self.allow_in;
+                        self.allow_in = false;
+                        let first = self.parse_expression(); // ExpressionNoIn
+                        self.allow_in = prev_allow_in;
+
+                        if self.check_kind(TokenKind::In) {
+                            let name = match first {
+                                ast::Expr::Identifier(n) => n,
+                                _ => {
+                                    self.error("expected identifier before 'in' in 'for...in'".to_string());
+                                }
+                            };
+                            let expr = self.parse_expression();
+
                             if !self.check_kind(TokenKind::CloseParen) {
                                 self.error("Expected ')' after '('".to_string());
                             }
 
                             body = self.parse_statement();
-                        }
-                        second = self.parse_expression();
-                    }
 
-                    return ast::Stmt::For {
-                        init: Some(ast::ForInit::Var(firstvar)),
-                        cond: Some(second),
-                        update: Some(third),
-                        body: Box::new(body),
-                    };
-                } else if self.check_kind(TokenKind::New) {
-                    first = self.parse_lefthand_side_expression();
-
-                    if self.check_kind(TokenKind::In) {
-                        second = self.parse_expression();
-                    } else {
-                        self.error("Expected 'in' after a lefthand sided expression in a 'for' loop".to_string());
-                    }
-
-                    if !self.check_kind(TokenKind::CloseParen) {
-                        self.error("Expected ')' after '('".to_string());
-                    }
-
-                    return ast::Stmt::For {
-                        init: Some(ast::ForInit::Expr(first)),
-                        cond: Some(second),
-                        update: Some(third),
-                        body: Box::new(body),
-                    };
-                } else {
-                    let prev_allow_in = self.allow_in;
-                    self.allow_in = false;
-                    first = self.parse_expression(); // for (ExpressionNoIn opt; Expression opt ; Expression opt ) Statement
-                    self.allow_in = prev_allow_in;
-
-                    if self.check_kind(TokenKind::In) {
-                        let name = match first {
-                            ast::Expr::Identifier(n) => n,
-                            _ => {
-                                self.error("expected identifier before 'in' in 'for...in'".to_string());
-                            }
-                        };
-                        second = self.parse_expression();
-
-                        if !self.check_kind(TokenKind::CloseParen) {
-                            self.error("Expected ')' after '('".to_string());
+                            return ast::Stmt::ForIn {
+                                var: name,
+                                expr,
+                                body: Box::new(body),
+                            };
                         }
 
-                        body = self.parse_statement();
+                        init = Some(ast::ForInit::Expr(first));
 
-                        return ast::Stmt::ForIn {
-                            var: name,
-                            expr: second,
-                            body: Box::new(body),
-                        };
-                    }
-
-                    if self.check_kind(TokenKind::SemiColon) {
                         if !self.check_kind(TokenKind::SemiColon) {
-                            third = ast::Expr::Empty;
-                            if !self.check_kind(TokenKind::CloseParen) {
-                                self.error("Expected ')' after '('".to_string());
-                            }
+                            self.error("Expected ';' after initializer in 'for'".to_string());
                         }
-                        second = self.parse_expression();
                     }
+
+                    let cond = if self.check_kind(TokenKind::SemiColon) {
+                        None
+                    } else {
+                        let expr = self.parse_expression();
+                        if !self.check_kind(TokenKind::SemiColon) {
+                            self.error("Expected ';' after condition in 'for'".to_string());
+                        }
+                        Some(expr)
+                    };
+
+                    let update = if self.check_kind(TokenKind::CloseParen) {
+                        None
+                    } else {
+                        let expr = self.parse_expression();
+                        if !self.check_kind(TokenKind::CloseParen) {
+                            self.error("Expected ')' after update in 'for'".to_string());
+                        }
+                        Some(expr)
+                    };
 
                     body = self.parse_statement();
 
                     return ast::Stmt::For {
-                        init: Some(ast::ForInit::Expr(first)),
-                        cond: Some(second),
-                        update: Some(third),
+                        init,
+                        cond,
+                        update,
                         body: Box::new(body),
                     };
                 }
@@ -1308,7 +1314,6 @@ impl Parser {
                 self.peek().content
             ));
         }
-        self.advance();
 
         let expr = self.parse_expression();
 
@@ -1318,7 +1323,6 @@ impl Parser {
                 self.peek().content
             ));
         }
-        self.advance();
 
         let stmt = self.parse_statement();
 
