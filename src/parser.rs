@@ -934,45 +934,45 @@ impl Parser {
         } 
 
         body
-    }
-
-    fn parse_function_declaration(&mut self) -> ast::Function {
-        if !self.check_kind(TokenKind::Function) {
-            self.error("expected 'function' keyword".to_string());
-        }
-
-        let name: String = self.parse_identifier();
-
-        if !self.check_kind(TokenKind::OpenParen) {
-            self.error("expected '(' after function name".to_string());
-        }
-
-        let params = self.parse_parameter_list();
-
-        if !self.check_kind(TokenKind::CloseParen) {
-            self.error("Not found ')' after '('".to_string());
-        }
-
-        if !self.check_kind(TokenKind::OpenCurly) {
-            self.error("expected '{' after ')'".to_string());
-        }
-
-        let body = self.parse_function_body();
-
-        ast::Function {
-            name: Some(name),
-            params,
-            body,
-        }
-    }
+    } 
 
     fn parse_statement(&mut self) -> ast::Stmt {
         let tok = self.peek();
         match tok.kind {
             TokenKind::Function => {
-                return ast::Stmt::Function(self.parse_function_declaration());
+                let expr = self.parse_expression();
+                match expr {
+                    ast::Expr::Function(f) => {
+                        if self.peek().kind == TokenKind::SemiColon {
+                            self.consume_semicolon_or_insert();
+                            return ast::Stmt::Expr(ast::Expr::Function(f));
+                        }
+                        return ast::Stmt::Function(f);
+                    }
+                    _ => {
+                        self.consume_semicolon_or_insert();
+                        return ast::Stmt::Expr(expr);
+                    }
+                }
             }
             TokenKind::OpenCurly => {
+                let is_object_literal = match (
+                    self.tokens.get(self.pos + 1),
+                    self.tokens.get(self.pos + 2),
+                ) {
+                    (Some(a), Some(b)) => {
+                        (a.kind == TokenKind::Identifier
+                            || a.kind == TokenKind::String
+                            || a.kind == TokenKind::Number)
+                            && b.kind == TokenKind::DoubleDot
+                    }
+                    _ => false,
+                };
+                if is_object_literal {
+                    let expr = self.parse_expression();
+                    self.consume_semicolon_or_insert();
+                    return ast::Stmt::Expr(expr);
+                }
                 return self.parse_block();
             }
             TokenKind::SemiColon => {
@@ -1132,7 +1132,10 @@ impl Parser {
 
             if self.check_kind(TokenKind::OpenParen) {
                 if self.check_kind(TokenKind::Var) {
+                    let prev_allow_in = self.allow_in;
+                    self.allow_in = false;
                     let firstvar = self.parse_variable_declaration_list();
+                    self.allow_in = prev_allow_in;
 
                     if self.check_kind(TokenKind::In) {
                         if firstvar.len() != 1 {
@@ -1154,6 +1157,10 @@ impl Parser {
                         };
                     }
 
+                    if !self.check_kind(TokenKind::SemiColon) {
+                        self.error("Expected ';' after variable declaration list".to_string());
+                    }
+
                     let cond = if self.check_kind(TokenKind::SemiColon) {
                         None
                     } else {
@@ -1168,6 +1175,7 @@ impl Parser {
                         None
                     } else {
                         let expr = self.parse_expression();
+                        self.check_kind(TokenKind::SemiColon); // consume the semicolon
                         if !self.check_kind(TokenKind::CloseParen) {
                             self.error("Expected ')' after update in 'for'".to_string());
                         }
@@ -1352,11 +1360,7 @@ impl Parser {
         let mut body = Vec::new();
 
         while self.peek().kind != TokenKind::EOF {
-            if self.peek().kind == TokenKind::Function {
-                body.push(ast::Stmt::Function(self.parse_function_declaration()));
-            } else {
-                body.push(self.parse_statement());
-            }
+            body.push(self.parse_statement());
         }
 
         ast::Program { body }

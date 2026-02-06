@@ -263,7 +263,7 @@ fn parses_object_literal() {
 
 #[test]
 fn parses_function_expression() {
-    expect_expr("function(a, b) { return a; };", "function expression", |expr| {
+    expect_expr("function c (a, b) { return a; };", "function expression", |expr| {
         matches!(expr, ast::Expr::Function(_))
     });
 }
@@ -285,4 +285,13 @@ fn parses_for_in_with_var_initializer() {
     expect_stmt("for (var i = 0 in obj) ;", "for-in with var init", |stmt| {
         matches!(stmt, ast::Stmt::ForIn { .. })
     });
+}
+
+#[test]
+fn parses_object() {
+    expect_stmt(
+        "var obj = {a: 15, c: function d(m){}}; var n = obj.a - 2 * obj.a;",
+        "complex object literal",
+        |stmt| matches!(stmt, ast::Stmt::Var(_)),
+    );
 }
