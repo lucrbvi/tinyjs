@@ -713,7 +713,7 @@ impl Parser {
     }
 
     fn parse_postfix_expression(&mut self) -> ast::Expr {
-        let expr = self.parse_lefthand_side_expression();
+        let expr = self.parse_member_expression();
 
         let tok = self.peek();
         match tok.kind {
@@ -735,49 +735,6 @@ impl Parser {
             }
             _ => expr,
         }
-    }
-
-    fn parse_lefthand_side_expression(&mut self) -> ast::Expr {
-        let mut expr = self.parse_new_expression();
-
-        loop {
-            match self.peek().kind {
-                TokenKind::OpenParen => {
-                    self.advance();
-                    let args = self.parse_arguments();
-                    expr = ast::Expr::Call {
-                        callee: Box::new(expr),
-                        args: Box::new(args),
-                    };
-                }
-                TokenKind::OpenBracket => {
-                    self.advance();
-                    let index = self.parse_expression();
-                    if !self.check_kind(TokenKind::CloseBracket) {
-                        self.error("expected ']'".to_string());
-                    }
-                    expr = ast::Expr::Index {
-                        object: Box::new(expr),
-                        index: Box::new(index),
-                    };
-                }
-                TokenKind::Dot => {
-                    self.advance();
-                    let name = self.parse_identifier();
-                    expr = ast::Expr::Member {
-                        object: Box::new(expr),
-                        property: name,
-                    };
-                }
-                _ => break,
-            }
-        }
-
-        return expr;
-    }
-
-    fn parse_new_expression(&mut self) -> ast::Expr {
-        return self.parse_member_expression();
     }
  
     fn parse_arguments(&mut self) -> ast::Expr {
@@ -833,6 +790,14 @@ impl Parser {
 
         loop {
             match self.peek().kind {
+                TokenKind::OpenParen => {
+                    self.advance();
+                    let args = self.parse_arguments();
+                    expr = ast::Expr::Call {
+                        callee: Box::new(expr),
+                        args: Box::new(args),
+                    };
+                }
                 TokenKind::OpenBracket => {
                     self.advance();
                     let index = self.parse_expression();
@@ -936,43 +901,43 @@ impl Parser {
         body
     } 
 
+    fn parse_function_declaration(&mut self) -> ast::Function {
+        if !self.check_kind(TokenKind::Function) {
+            self.error("expected 'function' keyword".to_string());
+        }
+
+        let name: String = self.parse_identifier();
+
+        if !self.check_kind(TokenKind::OpenParen) {
+            self.error("expected '(' after function name".to_string());
+        }
+
+        let params = self.parse_parameter_list();
+
+        if !self.check_kind(TokenKind::CloseParen) {
+            self.error("Not found ')' after '('".to_string());
+        }
+
+        if !self.check_kind(TokenKind::OpenCurly) {
+            self.error("expected '{' after ')'".to_string());
+        }
+
+        let body = self.parse_function_body();
+
+        ast::Function {
+            name: Some(name),
+            params,
+            body,
+        }
+    }
+
     fn parse_statement(&mut self) -> ast::Stmt {
         let tok = self.peek();
         match tok.kind {
             TokenKind::Function => {
-                let expr = self.parse_expression();
-                match expr {
-                    ast::Expr::Function(f) => {
-                        if self.peek().kind == TokenKind::SemiColon {
-                            self.consume_semicolon_or_insert();
-                            return ast::Stmt::Expr(ast::Expr::Function(f));
-                        }
-                        return ast::Stmt::Function(f);
-                    }
-                    _ => {
-                        self.consume_semicolon_or_insert();
-                        return ast::Stmt::Expr(expr);
-                    }
-                }
+                return ast::Stmt::Function(self.parse_function_declaration());
             }
             TokenKind::OpenCurly => {
-                let is_object_literal = match (
-                    self.tokens.get(self.pos + 1),
-                    self.tokens.get(self.pos + 2),
-                ) {
-                    (Some(a), Some(b)) => {
-                        (a.kind == TokenKind::Identifier
-                            || a.kind == TokenKind::String
-                            || a.kind == TokenKind::Number)
-                            && b.kind == TokenKind::DoubleDot
-                    }
-                    _ => false,
-                };
-                if is_object_literal {
-                    let expr = self.parse_expression();
-                    self.consume_semicolon_or_insert();
-                    return ast::Stmt::Expr(expr);
-                }
                 return self.parse_block();
             }
             TokenKind::SemiColon => {
@@ -1360,7 +1325,11 @@ impl Parser {
         let mut body = Vec::new();
 
         while self.peek().kind != TokenKind::EOF {
-            body.push(self.parse_statement());
+            if self.peek().kind == TokenKind::Function {
+                body.push(ast::Stmt::Function(self.parse_function_declaration()));
+            } else {
+                body.push(self.parse_statement());
+            }
         }
 
         ast::Program { body }

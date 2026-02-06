@@ -256,16 +256,24 @@ fn parses_array_literal() {
 
 #[test]
 fn parses_object_literal() {
-    expect_expr("{a: 1, \"b\": 2, 3: 4};", "object literal", |expr| {
+    expect_expr("({a: 1, \"b\": 2, 3: 4});", "object literal", |expr| {
         matches!(expr, ast::Expr::Literal(ast::Literal::Object(v)) if v.len() == 3)
     });
 }
 
 #[test]
 fn parses_function_expression() {
-    expect_expr("function c (a, b) { return a; };", "function expression", |expr| {
-        matches!(expr, ast::Expr::Function(_))
-    });
+    expect_stmt(
+        "var f = function c (a, b) { return a; };",
+        "function expression",
+        |stmt| {
+            matches!(
+                stmt,
+                ast::Stmt::Var(v)
+                if matches!(v.get(0), Some((_, Some(ast::Expr::Function(_)))))
+            )
+        },
+    );
 }
 
 #[test]
