@@ -1,2 +1,4 @@
 - You must run `cargo check` after introducing new code
-- If you change the lexer or parser please run `cargo test -- --no-capture`
+- If you change the lexer or parser please run `cargo test -- --no-capture` to see if you break tests
+- Less code is better code, always try to write as less as possible
+- Write in Rust edition 2024, do not introduce any dependencies

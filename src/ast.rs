@@ -3,8 +3,6 @@ pub enum Expr {
     Identifier(String),
     Literal(Literal),
     This,
-    AssignOp(AssignOp),
-    Empty,
 
     Binary {
         op: BinOp,
@@ -101,10 +99,6 @@ pub enum UnaryOp {
     Typeof,
     Void,
     Delete,
-    PreInc,
-    PreDec,
-    PostInc,
-    PostDec,
 }
 
 #[derive(PartialEq, Debug)]

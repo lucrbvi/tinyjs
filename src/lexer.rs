@@ -615,6 +615,9 @@ impl Lexer {
                         self.error("missing separator after number literal");
                     }
 
+                    if s.parse::<f64>().is_err() {
+                        self.error("invalid number literal");
+                    }
                     token.content = s;
                     token.kind = TokenKind::Number;
                     return token;
@@ -625,7 +628,7 @@ impl Lexer {
 
                     while {
                         let c = self.get_current_char();
-                        c != '\0' && (c.is_alphanumeric() || c == '_')
+                        c != '\0' && (c.is_alphanumeric() || c == '_' || c == '$')
                     } {
                         s.push(self.get_next_char());
                     }

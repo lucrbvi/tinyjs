@@ -716,6 +716,9 @@ impl Parser {
         let expr = self.parse_member_expression();
 
         let tok = self.peek();
+        if tok.line_terminator_before {
+            return expr;
+        }
         match tok.kind {
             TokenKind::DoublePlus => {
                 self.advance();
@@ -811,6 +814,9 @@ impl Parser {
                 }
                 TokenKind::Dot => {
                     self.advance();
+                    if self.peek().kind != TokenKind::Identifier {
+                        self.error("expected identifier after '.'".to_string());
+                    }
                     let name = self.parse_identifier();
                     expr = ast::Expr::Member {
                         object: Box::new(expr),
@@ -906,6 +912,9 @@ impl Parser {
             self.error("expected 'function' keyword".to_string());
         }
 
+        if self.peek().kind != TokenKind::Identifier {
+            self.error("expected function name".to_string());
+        }
         let name: String = self.parse_identifier();
 
         if !self.check_kind(TokenKind::OpenParen) {
@@ -1016,7 +1025,7 @@ impl Parser {
         let mut vars: Vec<(String, Option<ast::Expr>)> = vec![];
 
         if self.peek().kind != TokenKind::Identifier {
-            return vars;
+            self.error("expected identifier in variable declaration".to_string());
         }
 
         loop {
@@ -1077,13 +1086,14 @@ impl Parser {
 
     fn parse_iteration_statement(&mut self) -> ast::Stmt {
         let expr: ast::Expr;
-        let mut stmt: ast::Stmt = ast::Stmt::Empty;
+        let stmt: ast::Stmt;
         if self.check_kind(TokenKind::While) {
             if self.check_kind(TokenKind::OpenParen) {
                 expr = self.parse_expression();
-                if self.check_kind(TokenKind::CloseParen) {
-                    stmt = self.parse_statement();
+                if !self.check_kind(TokenKind::CloseParen) {
+                    self.error("Expected ')' after '('".to_string());
                 }
+                stmt = self.parse_statement();
 
                 return ast::Stmt::While {
                     cond: expr,
@@ -1140,7 +1150,6 @@ impl Parser {
                         None
                     } else {
                         let expr = self.parse_expression();
-                        self.check_kind(TokenKind::SemiColon); // consume the semicolon
                         if !self.check_kind(TokenKind::CloseParen) {
                             self.error("Expected ')' after update in 'for'".to_string());
                         }

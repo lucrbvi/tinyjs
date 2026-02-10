@@ -44,29 +44,29 @@ pub enum Const {
 // assign its result to the target node in an instruction
 #[derive(Debug)]
 pub enum Function {
-    Add((Operand, Operand)),
-    Sub((Operand, Operand)),
-    Mul((Operand, Operand)),
-    Mod((Operand, Operand)),
-    Div((Operand, Operand)),
-    Pow((Operand, Operand)),
+    Add(Operand, Operand),
+    Sub(Operand, Operand),
+    Mul(Operand, Operand),
+    Mod(Operand, Operand),
+    Div(Operand, Operand),
+    Pow(Operand, Operand),
     Inv(Operand), // return the inverse of a boolean (true -> false ; false -> true)
-    Equal((Operand, Operand)), // a == b
-    NotEqual((Operand, Operand)), // a != b
-    LessThan((Operand, Operand)), // a < b
-    GreaterThan((Operand, Operand)), // a > b
-    LessThanEqual((Operand, Operand)), // a <= b
-    GreaterThanEqual((Operand, Operand)), // a >= b
+    Equal(Operand, Operand), // a == b
+    NotEqual(Operand, Operand), // a != b
+    LessThan(Operand, Operand), // a < b
+    GreaterThan(Operand, Operand), // a > b
+    LessThanEqual(Operand, Operand), // a <= b
+    GreaterThanEqual(Operand, Operand), // a >= b
 }
 
 // Functions that do not return anything
 #[derive(Debug)]
 pub enum SoloFunction {
     Label(i64), // create a "target" for jumps ; the "key" is it's only argument, must be a Number
-    JumpIf((Operand, i64)), // jump to a label if the argument is true, only accept Boolean
+    JumpIf(Operand, i64), // jump to a label if the argument is true, only accept Boolean
     Jump(i64),
     Kill(Operand), // dereference a var
-    FnStart((String, i64)), // declare the start of a function block (string = name, i64 = number
+    FnStart(String, i64), // declare the start of a function block (string = name, i64 = number
                             // of arguments)
     FnEnd(), // end a function block
     Return(Option<Operand>),
@@ -167,7 +167,7 @@ impl Compiler {
      *  label(2)
      */
     pub fn parse_while(&mut self, s: &ast::Stmt) {
-        if (s != &ast::Stmt::While { cond: _, body: _ }) {
+        if s != &(ast::Stmt::While { cond: _, body: _ }) {
             self.error(format!("expected a while statement in parse_while but got {:#?}", s));
         }
 
@@ -175,12 +175,12 @@ impl Compiler {
         let body_label = self.new_label();
 
         self.emit(begin);
-        let cond = self.parse_expression(s.&cond);
+        let cond = self.parse_expression(s.cond);
         self.emit(Instruction::Call{
             function: SoloFunction::JumpIf(cond, self.label_stack), // jump to body if cond == true
         });
         self.emit(Instruction::Call{
-            function: SoloFunction::Jump(cond, self.label_stack + 1), // jump to exit
+            function: SoloFunction::Jump(self.label_stack + 1), // jump to exit
         });
         self.emit(body_label);
         let body = self.parse_statement();
