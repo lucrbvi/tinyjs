@@ -70,6 +70,8 @@ pub enum SoloFunction {
                             // of arguments)
     FnEnd(), // end a function block
     Return(Option<Operand>),
+    PushToScope(Operand), // push an object in scope chain (for `with`)
+    RemoveFromScope(), // pop last pushed object from scope chain
     FnCall(String, Operand), // Operand = (...) with another operands inside (like a JS object)
     Call(Operand, Operand) // Call the first operand as a function
 }
@@ -116,8 +118,15 @@ impl Compiler {
     }
 
     fn new_label(&mut self) -> Instruction {
+        let id = self.new_label_id();
+        Instruction::Call {
+            function: SoloFunction::Label(id),
+        }
+    }
+
+    fn new_label_id(&mut self) -> i64 {
         self.label_stack += 1;
-        return Instruction::Call{function:SoloFunction::Label(self.label_stack)};
+        self.label_stack
     }
 
     // big switch statement
@@ -137,7 +146,7 @@ impl Compiler {
                 self.parse_expression();
             },
             ast::Stmt::If { cond: _, then_: _, else_: _ } => {
-                self.parse_if();
+                self.parse_if(stmt);
             },
             ast::Stmt::While { cond: _, body: _ } => {
                 self.parse_while(stmt);
@@ -146,7 +155,7 @@ impl Compiler {
                 self.parse_for_in();
             },
             ast::Stmt::With { expr: _, body: _ } => {
-                self.parse_with();
+                self.parse_with(stmt);
             },
             _ => {
                 self.advance();
@@ -171,9 +180,11 @@ impl Compiler {
             self.error(format!("expected a while statement in parse_while but got {:#?}", s));
         }
 
-        let begin = self.new_label();
-        let body_label = self.new_label();
+        let begin_id = self.new_label_id();
+        let body_id = self.new_label_id();
+        let exit_id = self.new_label_id();
 
+<<<<<<< HEAD
         self.emit(begin);
         let cond = self.parse_expression(s.cond);
         self.emit(Instruction::Call{
@@ -181,12 +192,101 @@ impl Compiler {
         });
         self.emit(Instruction::Call{
             function: SoloFunction::Jump(self.label_stack + 1), // jump to exit
+=======
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(begin_id),
         });
-        self.emit(body_label);
+        let cond = self.parse_expression(s.cond);
+        self.emit(Instruction::Call {
+            function: SoloFunction::JumpIf((cond, body_id)),
+>>>>>>> 9694962 (ir design is done)
+        });
+        self.emit(Instruction::Call {
+            function: SoloFunction::Jump(exit_id),
+        });
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(body_id),
+        });
+        let body = self.parse_statement();
+        self.emit(body);
+        self.emit(Instruction::Call {
+            function: SoloFunction::Jump(begin_id),
+        });
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(exit_id),
+        });
+    }
+
+    /*
+     *  label(0)
+     *   JumpIf(1 == 2, 1)
+     *   Jump(2)
+     *  label(1) // body
+     *   ....
+     *  label(2) // else
+     *   ....
+     *  label(3) // exit
+     */
+    pub fn parse_if(&mut self, s: &ast::Stmt) {
+        if s != &(ast::Stmt::If { cond: _, then_: _, else_: _ }) {
+            self.error(format!("expected a if statement in parse_if but got {:#?}", s));
+        }
+
+        let begin_id = self.new_label_id();
+        let body_id = self.new_label_id();
+        let else_id = self.new_label_id();
+        let exit_id = self.new_label_id();
+
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(begin_id),
+        });
+        let cond = self.parse_expression(s.cond);
+        self.emit(Instruction::Call {
+            function: SoloFunction::JumpIf((cond, body_id)),
+        });
+        self.emit(Instruction::Call {
+            function: SoloFunction::Jump(else_id),
+        });
+
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(body_id),
+        });
+        let body = self.parse_statement();
+        self.emit(body);
+        self.emit(Instruction::Call {
+            function: SoloFunction::Jump(exit_id),
+        });
+
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(else_id),
+        });
+        let else_body = self.parse_statement();
+        self.emit(else_body);
+
+        self.emit(Instruction::Call {
+            function: SoloFunction::Label(exit_id),
+        });
+    }
+
+    pub fn parse_with(&mut self, s: &ast::Stmt) {
+        if s != &(ast::Stmt::With { expr: _, body: _ }) {
+            self.error(format!("expected a with statement in parse_with but got {:#?}", s));
+        }
+
+        let scope_obj = match s {
+            ast::Stmt::With { expr, body: _ } => self.parse_expression(expr),
+            _ => unreachable!(),
+        };
+
+        self.emit(Instruction::Call {
+            function: SoloFunction::PushToScope(scope_obj),
+        });
+
         let body = self.parse_statement();
         self.emit(body);
 
-        let exit_label = self.new_label();
-        self.emit(exit_label);
+        self.emit(Instruction::Call {
+            function: SoloFunction::RemoveFromScope(),
+        });
     }
 }
