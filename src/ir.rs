@@ -184,22 +184,12 @@ impl Compiler {
         let body_id = self.new_label_id();
         let exit_id = self.new_label_id();
 
-<<<<<<< HEAD
-        self.emit(begin);
-        let cond = self.parse_expression(s.cond);
-        self.emit(Instruction::Call{
-            function: SoloFunction::JumpIf(cond, self.label_stack), // jump to body if cond == true
-        });
-        self.emit(Instruction::Call{
-            function: SoloFunction::Jump(self.label_stack + 1), // jump to exit
-=======
         self.emit(Instruction::Call {
             function: SoloFunction::Label(begin_id),
         });
         let cond = self.parse_expression(s.cond);
         self.emit(Instruction::Call {
             function: SoloFunction::JumpIf((cond, body_id)),
->>>>>>> 9694962 (ir design is done)
         });
         self.emit(Instruction::Call {
             function: SoloFunction::Jump(exit_id),
