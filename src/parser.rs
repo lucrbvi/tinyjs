@@ -1,10 +1,8 @@
-// You should read this with the ECMAScript Third Edition on Annex B 
+// You should read this with the ECMAScript Third Edition on Annex B
 // (we ignore grammar on reserved keywords for ECMAScript first edition)
 
 use crate::ast;
 use crate::lexer::{Token, TokenKind};
-
-use std::process::exit;
 
 pub struct Parser {
     pub tokens: Vec<Token>,
@@ -34,7 +32,7 @@ impl Parser {
     }
 
     fn error_at(&self, token: &Token, msg: String) -> ! {
-        println!(
+        let mut error = format!(
             "Parser error at {}:{}: {}",
             token.line + 1,
             token.col + 1,
@@ -43,15 +41,19 @@ impl Parser {
         if !self.source.is_empty() {
             if let Some((context, caret)) = self.context_line(token.line, token.col) {
                 let prefix = "Context: '";
-                println!("{}{}'", prefix, context);
-                println!("{}^ Error here", " ".repeat(prefix.len() + caret));
+                error.push('\n');
+                error.push_str(&format!("{}{}'", prefix, context));
+                error.push('\n');
+                error.push_str(&format!("{}^ Error here", " ".repeat(prefix.len() + caret)));
             } else {
-                println!("Context: {}", self.context_around(2));
+                error.push('\n');
+                error.push_str(&format!("Context: {}", self.context_around(2)));
             }
         } else {
-            println!("Context: {}", self.context_around(2));
+            error.push('\n');
+            error.push_str(&format!("Context: {}", self.context_around(2)));
         }
-        exit(-1);
+        crate::error::fail(error);
     }
 
     fn error(&self, msg: String) -> ! {
@@ -164,14 +166,13 @@ impl Parser {
     }
 
     fn parse_string(&mut self, x: Token) -> String {
-        if x.content.chars().nth(0) == Some('\'')
-            || x.content.chars().nth(0) == Some('"') {
-                // we could have done this in lexer but it's fine here too
-                // (we drop the '' or "" in strings)
-                let mut y = x.content.clone();
-                y.pop();
-                y.remove(0);
-                return y;
+        if x.content.chars().nth(0) == Some('\'') || x.content.chars().nth(0) == Some('"') {
+            // we could have done this in lexer but it's fine here too
+            // (we drop the '' or "" in strings)
+            let mut y = x.content.clone();
+            y.pop();
+            y.remove(0);
+            return y;
         }
 
         return x.content.clone();
@@ -267,14 +268,16 @@ impl Parser {
                 property_name = ast::PropertyKey::String(self.parse_string(self.peek().clone()));
                 self.advance();
             } else if self.peek().kind == TokenKind::Number {
-                property_name = ast::PropertyKey::Number(self.peek().content.clone().parse().unwrap());
+                property_name =
+                    ast::PropertyKey::Number(self.peek().content.clone().parse().unwrap());
                 self.advance();
             } else if self.peek().kind == TokenKind::Identifier {
                 property_name = ast::PropertyKey::Identifier(self.parse_identifier());
             } else {
                 self.error(format!(
                     "Expected a String or a Number or an Identifier but found '{}' of type {:#?}",
-                    self.peek().content, self.peek().kind
+                    self.peek().content,
+                    self.peek().kind
                 ));
             }
 
@@ -405,10 +408,7 @@ impl Parser {
                 return ast::AssignOp::BitOrAssign;
             }
             _ => {
-                self.error_at(
-                    &x,
-                    format!("illegal assignement operator '{}'", x.content),
-                );
+                self.error_at(&x, format!("illegal assignement operator '{}'", x.content));
             }
         }
     }
@@ -423,7 +423,7 @@ impl Parser {
             if self.check_kind(TokenKind::DoubleDot) {
                 assign_expr2 = self.parse_assignment_expression();
 
-                return ast::Expr::Ternary{
+                return ast::Expr::Ternary {
                     cond: Box::new(logic_or_expr),
                     then_: Box::new(assign_expr),
                     else_: Box::new(assign_expr2),
@@ -739,7 +739,7 @@ impl Parser {
             _ => expr,
         }
     }
- 
+
     fn parse_arguments(&mut self) -> ast::Expr {
         let mut args = vec![];
 
@@ -788,7 +788,7 @@ impl Parser {
                 args: Box::new(args),
             };
         } else {
-         expr = self.parse_primary_expression();
+            expr = self.parse_primary_expression();
         }
 
         loop {
@@ -902,10 +902,10 @@ impl Parser {
 
         if !self.check_kind(TokenKind::CloseCurly) {
             self.error("expected '}' in function body".to_string());
-        } 
+        }
 
         body
-    } 
+    }
 
     fn parse_function_declaration(&mut self) -> ast::Function {
         if !self.check_kind(TokenKind::Function) {
@@ -1177,7 +1177,9 @@ impl Parser {
                             let name = match first {
                                 ast::Expr::Identifier(n) => n,
                                 _ => {
-                                    self.error("expected identifier before 'in' in 'for...in'".to_string());
+                                    self.error(
+                                        "expected identifier before 'in' in 'for...in'".to_string(),
+                                    );
                                 }
                             };
                             let expr = self.parse_expression();
@@ -1291,19 +1293,13 @@ impl Parser {
         assert!(self.check_kind(TokenKind::With));
 
         if !self.check_kind(TokenKind::OpenParen) {
-            self.error(format!(
-                "Expected '(' but found '{}'",
-                self.peek().content
-            ));
+            self.error(format!("Expected '(' but found '{}'", self.peek().content));
         }
 
         let expr = self.parse_expression();
 
         if !self.check_kind(TokenKind::CloseParen) {
-            self.error(format!(
-                "Expected ')' but found '{}'",
-                self.peek().content
-            ));
+            self.error(format!("Expected ')' but found '{}'", self.peek().content));
         }
 
         let stmt = self.parse_statement();

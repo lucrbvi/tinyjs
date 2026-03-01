@@ -1,3 +1,4 @@
+use tinyjs::ir;
 use tinyjs::lexer;
 use tinyjs::parser;
 
@@ -22,7 +23,23 @@ fn main() {
 
     let program = parser.parse(tokens);
 
-    for stmt in program.body {
+    println!("\nAST output:");
+
+    for stmt in &program.body {
         println!("{:#?}", stmt);
+    }
+
+    let mut compiler = ir::Compiler {
+        source: program,
+        pos: 0,
+        output: ir::Program { body: vec![] },
+        label_stack: 0,
+    };
+    compiler.compile();
+
+    println!("\nIR output:");
+
+    for i in compiler.output.body {
+        println!("{:#?}", i);
     }
 }

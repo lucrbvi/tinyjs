@@ -1,5 +1,3 @@
-use std::process::exit;
-
 pub struct Cursor {
     pub line: usize,
     pub row: usize,
@@ -45,9 +43,8 @@ pub enum TokenKind {
     Const,
     Enum,
     Import,
-    Try, 
+    Try,
     */
-
     // symbols
     SemiColon,
     OpenParen,
@@ -198,7 +195,6 @@ impl Lexer {
             "import" => TokenKind::Import,
             "try" => TokenKind::Try,
             */
-
             _ => TokenKind::Identifier,
         }
     }
@@ -234,13 +230,12 @@ impl Lexer {
     }
 
     fn error(&self, msg: &str) -> ! {
-        println!(
+        crate::error::fail(format!(
             "Lexer error at {}:{}: {}",
             self.cursor.line + 1,
             self.cursor.row + 1,
             msg
-        );
-        exit(-1);
+        ));
     }
 
     fn skip_comment(&mut self) -> bool {
