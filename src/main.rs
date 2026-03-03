@@ -34,6 +34,8 @@ fn main() {
         pos: 0,
         output: ir::Program { body: vec![] },
         label_stack: 0,
+        loop_stack: vec![],
+        return_stack: vec![],
     };
     compiler.compile();
 

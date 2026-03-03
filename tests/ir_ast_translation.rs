@@ -1,3 +1,5 @@
+// TODO: Update the tests to align on the AST compiler
+
 use tinyjs::ast;
 use tinyjs::ir;
 use tinyjs::lexer;
@@ -29,6 +31,8 @@ fn compile_ir(source: &str) -> Vec<ir::Instruction> {
         pos: 0,
         output: ir::Program { body: vec![] },
         label_stack: 0,
+        loop_stack: vec![],
+        return_stack: vec![],
     };
 
     compiler.compile();
@@ -211,7 +215,7 @@ fn translates_with_statement_scope_ops() {
         matches!(
             instr,
             ir::Instruction::Call {
-                function: ir::SoloFunction::RemoveFromScope()
+                function: ir::SoloFunction::PopFromScope()
             }
         )
     });
