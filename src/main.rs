@@ -1,6 +1,7 @@
 use tinyjs::ir;
 use tinyjs::lexer;
 use tinyjs::parser;
+use tinyjs::vm;
 
 fn main() {
     let source = "var i=0; while(i++<5){if (i==4) {break;} console.log('hi')} var b = {a: 16.2}; var c = undefined; var d = !{}\nfunction nen() {\n return 15-2;\n};".to_string();
@@ -41,7 +42,26 @@ fn main() {
 
     println!("\nIR output:");
 
-    for i in compiler.output.body {
+    for i in &compiler.output.body {
         println!("{:#?}", i);
     }
+
+    let bc = vm::compile_to_bytecode(compiler.output);
+
+    println!("\nBytecode:");
+
+    for i in &bc.instructions {
+        println!("{:#?}", i);
+    }
+
+    println!("\nVM output:");
+
+    let mut machine = vm::VM::new(bc);
+    machine.run();
+    println!(
+        "b: {:#?} (expect object with a: 16.2)",
+        machine.get_variable("b")
+    );
+    println!("c: {:#?} (expect undefined)", machine.get_variable("c"));
+    println!("d: {:#?} (expect false)", machine.get_variable("d"));
 }

@@ -71,10 +71,13 @@ pub enum SoloFunction {
     Return(Option<Operand>),
     PushToScope(Operand),        // push an object in scope chain (for `with`)
     PopFromScope(),              // pop last pushed object from scope chain
-    FnCall(String, Operand),     // Operand = (...) with another operands inside (like a JS object)
+    FnCall(String, Operand),     // Call a global function by name: fn(args)
+    MethodCall(Operand, String, Operand), // Call a method on object: obj.method(args)
     Call(Operand, Operand),      // Call the first operand as a function
     ForInStart(String, Operand), // create an iterator on an object
     ForInNext(String, Operand),  // get the next key of the object
+    MakeObject(String, Vec<(String, Operand)>), // Create object and assign to variable: MakeObject(var_name, [(key, value), ...])
+    MakeArray(String, Vec<Operand>), // Create array and assign to variable: MakeArray(var_name, [elements, ...])
 }
 
 #[derive(Debug)]
@@ -146,6 +149,7 @@ impl Compiler {
                 for (name, init) in v {
                     match init {
                         Some(ast::Expr::Literal(ast::Literal::Object(props))) => {
+                            let mut obj_props = Vec::new();
                             for (key, value) in props {
                                 let prop_name = match key {
                                     ast::PropertyKey::Identifier(s) => s,
@@ -153,27 +157,20 @@ impl Compiler {
                                     ast::PropertyKey::Number(n) => format!("{}", n),
                                 };
                                 let val = self.compile_expr(value);
-                                self.output.body.push(Instruction::Assign {
-                                    dest: format!("{}_{}", name, prop_name),
-                                    src: val,
-                                });
+                                obj_props.push((prop_name, val));
                             }
-                            self.output.body.push(Instruction::Assign {
-                                dest: name,
-                                src: Operand::Const(Const::Undefined),
+                            self.output.body.push(Instruction::Call {
+                                function: SoloFunction::MakeObject(name, obj_props),
                             });
                         }
                         Some(ast::Expr::Literal(ast::Literal::Array(elements))) => {
-                            for (idx, elem) in elements.into_iter().enumerate() {
+                            let mut arr_elements = Vec::new();
+                            for elem in elements {
                                 let val = self.compile_expr(elem);
-                                self.output.body.push(Instruction::Assign {
-                                    dest: format!("{}_{}", name, idx),
-                                    src: val,
-                                });
+                                arr_elements.push(val);
                             }
-                            self.output.body.push(Instruction::Assign {
-                                dest: name,
-                                src: Operand::Const(Const::Undefined),
+                            self.output.body.push(Instruction::Call {
+                                function: SoloFunction::MakeArray(name, arr_elements),
                             });
                         }
                         Some(expr) => {
@@ -489,21 +486,19 @@ impl Compiler {
                 ast::Literal::Undefined => Operand::Const(Const::Undefined),
                 ast::Literal::Array(elements) => {
                     let array_var = format!("__t{}", self.new_label());
-                    for (idx, elem) in elements.into_iter().enumerate() {
+                    let mut arr_elements = Vec::new();
+                    for elem in elements {
                         let val = self.compile_expr(elem);
-                        self.output.body.push(Instruction::Assign {
-                            dest: format!("{}_{}", array_var, idx),
-                            src: val,
-                        });
+                        arr_elements.push(val);
                     }
-                    self.output.body.push(Instruction::Assign {
-                        dest: array_var.clone(),
-                        src: Operand::Const(Const::Undefined),
+                    self.output.body.push(Instruction::Call {
+                        function: SoloFunction::MakeArray(array_var.clone(), arr_elements),
                     });
                     Operand::Var(array_var)
                 }
                 ast::Literal::Object(props) => {
                     let obj_var = format!("__t{}", self.new_label());
+                    let mut obj_props = Vec::new();
                     for (key, value) in props {
                         let prop_name = match key {
                             ast::PropertyKey::Identifier(s) => s,
@@ -511,16 +506,10 @@ impl Compiler {
                             ast::PropertyKey::Number(n) => format!("{}", n),
                         };
                         let val = self.compile_expr(value);
-                        self.output.body.push(Instruction::Assign {
-                            dest: format!("{}_{}", obj_var, prop_name),
-                            src: val,
-                        });
+                        obj_props.push((prop_name, val));
                     }
-                    // Un objet (même vide) doit être truthy pour que !{} == false
-                    // On utilise true comme marqueur d'objet existant
-                    self.output.body.push(Instruction::Assign {
-                        dest: obj_var.clone(),
-                        src: Operand::Const(Const::Boolean(true)),
+                    self.output.body.push(Instruction::Call {
+                        function: SoloFunction::MakeObject(obj_var.clone(), obj_props),
                     });
                     Operand::Var(obj_var)
                 }
@@ -671,21 +660,24 @@ impl Compiler {
                 _ => self.error("unsupported member"),
             },
             ast::Expr::Call { callee, args } => {
-                let func_name = match *callee {
-                    ast::Expr::Identifier(name) => name,
+                match *callee {
+                    ast::Expr::Identifier(name) => {
+                        // Global function call: foo(args)
+                        let args_op = self.compile_expr(*args);
+                        self.output.body.push(Instruction::Call {
+                            function: SoloFunction::FnCall(name, args_op),
+                        });
+                    }
                     ast::Expr::Member { object, property } => {
-                        if let ast::Expr::Identifier(obj_name) = *object {
-                            format!("{}_{}", obj_name, property)
-                        } else {
-                            self.error("complex callee")
-                        }
+                        // Method call: obj.method(args)
+                        let obj_op = self.compile_expr(*object);
+                        let args_op = self.compile_expr(*args);
+                        self.output.body.push(Instruction::Call {
+                            function: SoloFunction::MethodCall(obj_op, property, args_op),
+                        });
                     }
                     _ => self.error("unsupported callee"),
                 };
-                let args_op = self.compile_expr(*args);
-                self.output.body.push(Instruction::Call {
-                    function: SoloFunction::FnCall(func_name, args_op),
-                });
                 Operand::Const(Const::Undefined)
             }
             ast::Expr::Ternary { cond, then_, else_ } => {
